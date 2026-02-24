@@ -1,0 +1,272 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Flappy Binsu - Big Faces Edition</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: #2c3e50; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            overflow: hidden; 
+            touch-action: none; 
+        }
+        #game-container { position: relative; }
+        canvas { 
+            background: #71c5cf; 
+            border: 4px solid #ecf0f1; 
+            border-radius: 8px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
+            display: block;
+        }
+        #ui { 
+            position: absolute; 
+            top: 20px; 
+            width: 100%; 
+            color: white; 
+            text-align: center; 
+            pointer-events: none; 
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8); 
+            z-index: 10; 
+        }
+        h1 { margin: 0; font-size: 40px; }
+        p { margin: 5px 0 0 0; font-size: 22px; font-weight: bold; }
+        .crash-text { color: #ff4757; font-size: 32px; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui">
+            <h1 id="score">0</h1>
+            <p id="message">Tap to Start!</p>
+        </div>
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const messageEl = document.getElementById('message');
+
+// --- 1. LOAD PRE-CROPPED IMAGES ---
+const soloImg = new Image();
+soloImg.crossOrigin = "anonymous";
+soloImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/binsuu.jpeg'; 
+
+const obstacleImg1 = new Image();
+obstacleImg1.crossOrigin = "anonymous";
+obstacleImg1.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/all1u.jpeg'; 
+
+const obstacleImg2 = new Image();
+obstacleImg2.crossOrigin = "anonymous";
+obstacleImg2.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/all2u.jpeg'; 
+
+// --- 2. GAME VARIABLES ---
+let gameState = 'START'; 
+let score = 0;
+let frames = 0; 
+let tapCount = 0;
+let echoPlayed = false;
+
+const bird = { x: 60, y: 300, size: 60, velocity: 0, gravity: 0.4, jump: -7 };
+const obstacles = [];
+
+// --- 3. AUDIO FUNCTIONS ---
+function playFathimaEcho() {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel(); // Clear any pending speech
+    for (let i = 0; i < 3; i++) {
+        let utterance = new SpeechSynthesisUtterance("Fathima");
+        utterance.volume = 1 - (i * 0.4); 
+        utterance.rate = 0.8; 
+        utterance.pitch = 1 - (i * 0.15); 
+        window.speechSynthesis.speak(utterance);
+    }
+}
+
+function playCrashSound() {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel(); // This instantly stops the Fathima echo!
+    
+    let utterance = new SpeechSynthesisUtterance("thu sulemaga");
+    utterance.volume = 1.0; 
+    utterance.rate = 1.2; // Speak it slightly fast and aggressively
+    utterance.pitch = 0.8; // Slightly deeper voice
+    window.speechSynthesis.speak(utterance);
+}
+
+// --- 4. OBSTACLE GENERATION ---
+function spawnObstacle() {
+    const gap = 200; 
+    const minHeight = 100; 
+    const maxHeight = canvas.height - gap - minHeight;
+    const topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1) + minHeight);
+    
+    obstacles.push({
+        x: canvas.width, y: 0, w: 100, h: topHeight, 
+        img: obstacleImg1, passed: false, type: 'top'
+    });
+    
+    obstacles.push({
+        x: canvas.width, y: topHeight + gap, w: 100, h: canvas.height - topHeight - gap, 
+        img: obstacleImg2, passed: true, type: 'bottom'
+    });
+}
+
+// --- 5. MAIN GAME LOOP ---
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (gameState === 'START') {
+        bird.y = 300 + Math.sin(frames * 0.05) * 10;
+        if (soloImg.complete) ctx.drawImage(soloImg, bird.x, bird.y, bird.size, bird.size);
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.strokeRect(bird.x, bird.y, bird.size, bird.size);
+    } 
+    
+    else if (gameState === 'PLAYING' || gameState === 'GAMEOVER') {
+        bird.velocity += bird.gravity;
+        bird.y += bird.velocity;
+        
+        if (gameState === 'PLAYING' && frames % 110 === 0) spawnObstacle();
+
+        // Draw Obstacles
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            let o = obstacles[i];
+            if (gameState === 'PLAYING') o.x -= 3; 
+
+            ctx.fillStyle = "#2ecc71";
+            ctx.strokeStyle = "#fff";
+            ctx.lineWidth = 4;
+
+            if (o.type === 'top') {
+                ctx.fillRect(o.x + 10, o.y, o.w - 20, o.h - o.w); // Stem
+                if (o.img.complete) {
+                    ctx.drawImage(o.img, o.x, o.h - o.w, o.w, o.w); // Big Photo
+                    ctx.strokeRect(o.x, o.h - o.w, o.w, o.w);
+                }
+            } else {
+                ctx.fillRect(o.x + 10, o.y + o.w, o.w - 20, o.h - o.w); // Stem
+                if (o.img.complete) {
+                    ctx.drawImage(o.img, o.x, o.y, o.w, o.w); // Big Photo
+                    ctx.strokeRect(o.x, o.y, o.w, o.w);
+                }
+            }
+
+            // Hit Detection
+            if (gameState === 'PLAYING') {
+                const padding = 6; 
+                if (
+                    bird.x + padding < o.x + o.w &&
+                    bird.x + bird.size - padding > o.x &&
+                    bird.y + padding < o.y + o.h &&
+                    bird.y + bird.size - padding > o.y
+                ) {
+                    triggerGameOver();
+                }
+
+                // Add Score
+                if (!o.passed && bird.x > o.x + o.w) {
+                    score++;
+                    scoreEl.innerText = score;
+                    o.passed = true;
+                }
+            }
+
+            if (o.x + o.w < 0) obstacles.splice(i, 1);
+        }
+
+        // Draw Player (Binsu)
+        if (soloImg.complete) {
+            ctx.drawImage(soloImg, bird.x, bird.y, bird.size, bird.size);
+        } else {
+            ctx.fillStyle = "#f1c40f";
+            ctx.fillRect(bird.x, bird.y, bird.size, bird.size);
+        }
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(bird.x, bird.y, bird.size, bird.size);
+
+        // Floor/Ceiling Hit
+        if (bird.y + bird.size >= canvas.height || bird.y <= 0) {
+            triggerGameOver();
+        }
+    }
+
+    frames++;
+    requestAnimationFrame(draw);
+}
+
+// --- 6. GAME OVER LOGIC ---
+function triggerGameOver() {
+    if (gameState === 'GAMEOVER') return;
+    gameState = 'GAMEOVER';
+    
+    // Trigger the crash audio!
+    playCrashSound();
+    
+    messageEl.innerHTML = "<span class='crash-text'>jayjamma mayamma</span><br><span style='font-size:18px; color:white;'>Tap to restart</span>";
+}
+
+// --- 7. INPUT HANDLING ---
+function handleInput(e) {
+    if (e) e.preventDefault(); 
+    
+    // Browsers require a user interaction before they allow speech synthesis to work.
+    // We initialize a silent utterance on the first tap just to "unlock" audio for the page.
+    if (tapCount === 0 && 'speechSynthesis' in window) {
+        let unlockAudio = new SpeechSynthesisUtterance("");
+        unlockAudio.volume = 0;
+        window.speechSynthesis.speak(unlockAudio);
+    }
+
+    if (gameState === 'START') {
+        gameState = 'PLAYING';
+        messageEl.innerText = "";
+        bird.velocity = bird.jump;
+        tapCount++;
+    } 
+    else if (gameState === 'PLAYING') {
+        bird.velocity = bird.jump;
+        tapCount++;
+        
+        // Fathima Echo strictly on 10th tap!
+        if (tapCount === 10 && !echoPlayed) {
+            playFathimaEcho();
+            echoPlayed = true;
+        }
+    } 
+    else if (gameState === 'GAMEOVER') {
+        // Reset Game
+        gameState = 'START';
+        score = 0;
+        scoreEl.innerText = "0";
+        messageEl.innerText = "Tap to Start!";
+        bird.y = 300;
+        bird.velocity = 0;
+        obstacles.length = 0;
+        frames = 0;
+        tapCount = 0;
+        echoPlayed = false;
+        
+        // Stop any leftover crash speech when restarting
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    }
+}
+
+// Listeners
+window.addEventListener('mousedown', handleInput);
+window.addEventListener('touchstart', handleInput, { passive: false });
+window.addEventListener('keydown', (e) => { if (e.code === 'Space') handleInput(); });
+
+draw();
+</script>
+</body>
+</html>
