@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Escape the Nightmare</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&display=swap');
+
+        body { 
+            margin: 0; 
+            background: #000; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            font-family: 'Creepster', cursive; 
+            overflow: hidden; 
+            touch-action: none; 
+            user-select: none;
+        }
+        #game-container { position: relative; width: 100%; height: 100%; max-width: 500px; }
+        
+        canvas { 
+            display: block; 
+            width: 100%; 
+            height: 100%; 
+            background: linear-gradient(to bottom, #1a0000, #330000, #0a0000); 
+            box-shadow: inset 0 0 100px #000;
+        }
+
+        #vignette {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 40%, #000 100%);
+            pointer-events: none; z-index: 5;
+            animation: pulse 3s infinite alternate;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        #ui { 
+            position: absolute; top: 20px; width: 100%; 
+            color: #ff0000; text-align: center; pointer-events: none; 
+            text-shadow: 2px 2px 0 #000, 0 0 20px #ff0000; z-index: 10; 
+        }
+        
+        h1 { margin: 0; font-size: 55px; letter-spacing: 3px; transition: transform 0.1s, text-shadow 0.1s; }
+        h2 { margin: 0; font-size: 28px; color: #ff6b6b; text-shadow: 2px 2px 0 #000; }
+        p { margin: 10px 0 0 0; font-size: 22px; color: #aaa; text-shadow: none; font-family: sans-serif; font-weight: bold;}
+        
+        .crash-text { color: #ff0000; font-size: 55px; text-transform: uppercase; text-shadow: 0 0 20px #ff0000; }
+
+        /* Screen shake animation for when caught */
+        @keyframes shake {
+            0% { transform: translate(2px, 2px) rotate(0deg); }
+            10% { transform: translate(-2px, -3px) rotate(-1deg); }
+            20% { transform: translate(-4px, 0px) rotate(1deg); }
+            30% { transform: translate(4px, 3px) rotate(0deg); }
+            40% { transform: translate(2px, -2px) rotate(1deg); }
+            50% { transform: translate(-2px, 3px) rotate(-1deg); }
+            60% { transform: translate(-4px, 2px) rotate(0deg); }
+            70% { transform: translate(4px, 2px) rotate(-1deg); }
+            80% { transform: translate(-2px, -2px) rotate(1deg); }
+            90% { transform: translate(2px, 3px) rotate(0deg); }
+            100% { transform: translate(2px, -3px) rotate(-1deg); }
+        }
+        .shaking { animation: shake 0.4s; }
+        
+        /* Animation when score increases */
+        .score-pop { transform: scale(1.3); text-shadow: 0 0 40px #ff0000 !important; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="vignette"></div>
+        <div id="ui">
+            <h1 id="score">0</h1>
+            <h2 id="high-score">BEST: 0</h2>
+            <p id="message">TAP TO ESCAPE</p>
+        </div>
+        <canvas id="gameCanvas" width="400" height="700"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const highScoreEl = document.getElementById('high-score');
+const messageEl = document.getElementById('message');
+const gameContainer = document.getElementById('game-container');
+
+// --- 1. AUDIO SETUP (USING DIRECT RAW GITHUB LINK) ---
+const bgMusic = new Audio('https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kir.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.8; 
+let audioUnlocked = false;
+
+function unlockAudio() {
+    if (!audioUnlocked) {
+        bgMusic.play().then(() => {
+            audioUnlocked = true;
+        }).catch(err => {
+            console.log("Audio waiting for user interaction.");
+        });
+    }
+}
+
+// --- 2. LOAD LARGE IMAGES ---
+const sonImg = new Image();
+sonImg.crossOrigin = "anonymous";
+sonImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/varu.jpeg'; 
+
+const fatherImg = new Image();
+fatherImg.crossOrigin = "anonymous";
+fatherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/easha.jpeg'; 
+
+const motherImg = new Image();
+motherImg.crossOrigin = "anonymous";
+motherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kavitha.jpeg'; 
+
+// --- 3. GAME VARIABLES & HIGH SCORE ---
+let gameState = 'START'; 
+let score = 0;
+let frames = 0;
+
+// Load high score from Local Storage (saves even if you refresh)
+let bestScore = localStorage.getItem('escapeNightmareHighScore') || 0;
+highScoreEl.innerText = "BEST: " + bestScore;
+
+let baseSpeed = 3.5; // Start slightly faster
+let currentSpeed = baseSpeed;
+let baseGap = 260; 
+let currentGap = baseGap;
+
+const bird = { x: 70, y: 300, size: 75, velocity: 0, gravity: 0.5, jump: -8 };
+const obstacles = [];
+const ghostTrail = []; // Array to hold the fading trail effect
+
+// --- 4. OBSTACLE GENERATION ---
+function spawnObstacle() {
+    const minHeight = 120; 
+    const maxHeight = canvas.height - currentGap - minHeight;
+    const topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1) + minHeight);
+    
+    const obsWidth = 115; 
+
+    obstacles.push({
+        x: canvas.width, y: 0, w: obsWidth, h: topHeight, 
+        img: fatherImg, passed: false, type: 'father'
+    });
+    
+    obstacles.push({
+        x: canvas.width, y: topHeight + currentGap, w: obsWidth, h: canvas.height - topHeight - currentGap, 
+        img: motherImg, passed: true, type: 'mother'
+    });
+}
+
+// --- 5. MAIN GAME LOOP ---
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (gameState === 'START') {
+        bird.y = 350 + Math.sin(frames * 0.05) * 10;
+        if (sonImg.complete) ctx.drawImage(sonImg, bird.x, bird.y, bird.size, bird.size);
+        ctx.strokeStyle = "#ff0000"; ctx.lineWidth = 3; ctx.strokeRect(bird.x, bird.y, bird.size, bird.size);
+    } 
+    
+    else if (gameState === 'PLAYING' || gameState === 'GAMEOVER') {
+        
+        if (gameState === 'PLAYING') {
+            bird.velocity += bird.gravity;
+            bird.y += bird.velocity;
+            
+            // Add current position to ghost trail
+            ghostTrail.push({x: bird.x, y: bird.y, life: 1.0});
+            if (ghostTrail.length > 5) ghostTrail.shift(); // Keep only last 5 positions
+        }
+        
+        // Draw Ghost Trail (Creepy fading effect)
+        for (let i = 0; i < ghostTrail.length; i++) {
+            let t = ghostTrail[i];
+            ctx.globalAlpha = i * 0.15; // Fade out older positions
+            if (sonImg.complete) {
+                ctx.drawImage(sonImg, t.x - (currentSpeed * (ghostTrail.length - i)), t.y, bird.size, bird.size);
+            }
+        }
+        ctx.globalAlpha = 1.0; // Reset alpha
+        
+        let spawnRate = Math.max(55, 120 - Math.floor(score * 0.5)); 
+        if (gameState === 'PLAYING' && frames % spawnRate === 0) spawnObstacle();
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            let o = obstacles[i];
+            if (gameState === 'PLAYING') o.x -= currentSpeed; 
+
+            ctx.fillStyle = "#1a0000"; 
+            ctx.strokeStyle = "#8b0000";
+            ctx.lineWidth = 4;
+
+            if (o.type === 'father') {
+                ctx.fillRect(o.x + 10, o.y, o.w - 20, o.h - o.w); 
+                if (o.img.complete) {
+                    ctx.drawImage(o.img, o.x, o.h - o.w, o.w, o.w); 
+                    ctx.strokeRect(o.x, o.h - o.w, o.w, o.w);
+                }
+            } else {
+                ctx.fillRect(o.x + 10, o.y + o.w, o.w - 20, o.h - o.w); 
+                if (o.img.complete) {
+                    ctx.drawImage(o.img, o.x, o.y, o.w, o.w); 
+                    ctx.strokeRect(o.x, o.y, o.w, o.w);
+                }
+            }
+
+            if (gameState === 'PLAYING') {
+                const padding = 12; 
+                if (
+                    bird.x + padding < o.x + o.w &&
+                    bird.x + bird.size - padding > o.x &&
+                    bird.y + padding < o.y + o.h &&
+                    bird.y + bird.size - padding > o.y
+                ) {
+                    triggerGameOver();
+                }
+
+                // --- SCORE INCREASE BY 10 ---
+                if (!o.passed && bird.x > o.x + o.w) {
+                    score += 10;
+                    scoreEl.innerText = score;
+                    o.passed = true;
+                    
+                    // Trigger Score Pop Animation
+                    scoreEl.classList.add('score-pop');
+                    setTimeout(() => scoreEl.classList.remove('score-pop'), 200);
+                    
+                    // Difficulty Scaling
+                    currentSpeed = baseSpeed + (score * 0.02); // Speeds up based on new 10x scoring
+                    currentGap = Math.max(160, baseGap - (score * 0.3)); 
+                }
+            }
+
+            if (o.x + o.w < 0) obstacles.splice(i, 1);
+        }
+
+        // Draw Player Main Sprite
+        if (sonImg.complete) {
+            ctx.drawImage(sonImg, bird.x, bird.y, bird.size, bird.size);
+        } else {
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(bird.x, bird.y, bird.size, bird.size);
+        }
+        ctx.strokeStyle = "#ff0000";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(bird.x, bird.y, bird.size, bird.size);
+
+        if (bird.y + bird.size >= canvas.height || bird.y <= 0) {
+            triggerGameOver();
+        }
+    }
+
+    frames++;
+    requestAnimationFrame(draw);
+}
+
+// --- 6. GAME OVER & HIGH SCORE LOGIC ---
+function triggerGameOver() {
+    if (gameState === 'GAMEOVER') return;
+    gameState = 'GAMEOVER';
+    
+    // Check and save High Score
+    if (score > bestScore) {
+        bestScore = score;
+        localStorage.setItem('escapeNightmareHighScore', bestScore);
+        highScoreEl.innerText = "BEST: " + bestScore;
+    }
+    
+    // Trigger screen shake!
+    gameContainer.classList.add('shaking');
+    setTimeout(() => gameContainer.classList.remove('shaking'), 400);
+
+    messageEl.innerHTML = "<span class='crash-text'>CAUGHT!</span><br><span style='font-size:20px; color:#aaa; font-family:sans-serif;'>Tap to retry</span>";
+    ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// --- 7. INPUT HANDLING ---
+function handleInput(e) {
+    if (e) e.preventDefault(); 
+    
+    unlockAudio(); // Ensures music starts on click
+
+    if (gameState === 'START') {
+        gameState = 'PLAYING';
+        messageEl.innerText = "";
+        bird.velocity = bird.jump;
+    } 
+    else if (gameState === 'PLAYING') {
+        bird.velocity = bird.jump;
+    } 
+    else if (gameState === 'GAMEOVER') {
+        gameState = 'START';
+        score = 0;
+        currentSpeed = baseSpeed;
+        currentGap = baseGap;
+        scoreEl.innerText = "0";
+        messageEl.innerText = "TAP TO ESCAPE";
+        bird.y = 350;
+        bird.velocity = 0;
+        obstacles.length = 0;
+        ghostTrail.length = 0; // Clear the ghost trail
+        frames = 0;
+    }
+}
+
+// Event Listeners
+window.addEventListener('mousedown', handleInput);
+window.addEventListener('touchstart', handleInput, { passive: false });
+window.addEventListener('keydown', (e) => { if (e.code === 'Space') handleInput(); });
+
+draw();
+</script>
+</body>
+</html>
