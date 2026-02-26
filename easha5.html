@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>360° Stalker Arena</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&display=swap');
+
+        body { 
+            margin: 0; background: #000; display: flex; justify-content: center; align-items: center; 
+            height: 100vh; font-family: 'Creepster', cursive; overflow: hidden; touch-action: none; user-select: none;
+            cursor: crosshair;
+        }
+        #game-container { position: relative; width: 100%; height: 100%; max-width: 900px; }
+        
+        canvas { 
+            display: block; width: 100%; height: 100%; 
+            background: #020000;
+        }
+
+        #ui { 
+            position: absolute; top: 20px; width: 100%; 
+            color: #ff0000; text-align: center; pointer-events: none; 
+            text-shadow: 2px 2px 0 #000, 0 0 20px #ff0000; z-index: 10; 
+            display: flex; justify-content: space-between; padding: 0 40px; box-sizing: border-box;
+        }
+        
+        h1 { margin: 0; font-size: 40px; letter-spacing: 2px; }
+        
+        #center-ui {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; pointer-events: auto; z-index: 20;
+        }
+
+        .crash-text { color: #ff0000; font-size: 80px; text-transform: uppercase; text-shadow: 0 0 40px #ff0000; margin-bottom: 20px; display: none;}
+        
+        #start-btn {
+            padding: 15px 50px; font-size: 40px; background: rgba(0,0,0,0.9); color: #ff0000;
+            border: 4px solid #ff0000; border-radius: 10px; cursor: pointer;
+            box-shadow: 0 0 30px rgba(255,0,0,0.6), inset 0 0 20px rgba(255,0,0,0.6); 
+            font-family: 'Creepster', cursive; letter-spacing: 3px; text-transform: uppercase;
+            transition: all 0.2s;
+        }
+        #start-btn:hover { background-color: #ff0000; color: #000; }
+
+        /* Violent Screen Shake for Jumpscare */
+        @keyframes shake {
+            0% { transform: translate(5px, 5px) rotate(0deg); }
+            20% { transform: translate(-5px, 0px) rotate(3deg); }
+            40% { transform: translate(5px, -5px) rotate(-3deg); }
+            60% { transform: translate(-5px, 5px) rotate(0deg); }
+            80% { transform: translate(0px, -5px) rotate(3deg); }
+            100% { transform: translate(-5px, -5px) rotate(-3deg); }
+        }
+        .shaking { animation: shake 0.3s; }
+
+        /* Jumpscare Face Overlay */
+        #jumpscare {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.1);
+            width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; z-index: 15;
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .scare-active { transform: translate(-50%, -50%) scale(1.5) !important; opacity: 1 !important; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <img id="jumpscare" src="" alt="scare">
+        <div id="ui">
+            <h1 id="score">SCORE: 0</h1>
+            <h1 id="battery" style="color: #00e5ff;">FLASHLIGHT: 100%</h1>
+        </div>
+        <div id="center-ui">
+            <div id="crash-msg" class="crash-text">CONSUMED</div>
+            <button id="start-btn">TURN ON FLASHLIGHT</button>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const startBtn = document.getElementById('start-btn');
+const crashMsg = document.getElementById('crash-msg');
+const gameContainer = document.getElementById('game-container');
+const jumpscareImg = document.getElementById('jumpscare');
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth > 900 ? 900 : window.innerWidth;
+    canvas.height = window.innerHeight > 600 ? 600 : window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- 1. AUDIO SETUP ---
+const bgMusic = new Audio('https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kir.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.9; 
+let audioUnlocked = false;
+
+function unlockAudio() {
+    if (!audioUnlocked) {
+        bgMusic.play().catch(err => console.log("Audio waiting for interaction."));
+        audioUnlocked = true;
+    }
+}
+
+// --- 2. LOAD MASSIVE IMAGES ---
+const sonImg = new Image(); sonImg.crossOrigin = "anonymous";
+sonImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/varu.jpeg'; 
+
+const fatherImg = new Image(); fatherImg.crossOrigin = "anonymous";
+fatherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/easha.jpeg'; 
+
+const motherImg = new Image(); motherImg.crossOrigin = "anonymous";
+motherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kavitha.jpeg'; 
+
+// --- 3. GAME VARIABLES ---
+let gameState = 'IDLE'; 
+let score = 0;
+let frames = 0;
+
+// Player is pinned in the center of the room
+const cx = canvas.width / 2;
+const cy = canvas.height / 2;
+const playerSize = 80;
+
+// Flashlight aim and mechanics
+let mouseX = cx;
+let mouseY = cy;
+let beamAngle = 0;
+let defaultBeamWidth = 0.8; // ~45 degrees
+let beamWidth = defaultBeamWidth; 
+let flickerTimer = 0;
+
+let monsters = [];
+
+// Difficulty Scaling
+let spawnRate = 120;
+let monsterSpeed = 2.5;
+
+// --- 4. GAME LOGIC ---
+function spawnMonster() {
+    // Spawns just off-screen in a 360-degree radius
+    const angle = Math.random() * Math.PI * 2;
+    const distance = Math.max(canvas.width, canvas.height) / 2 + 100;
+    
+    const mx = cx + Math.cos(angle) * distance;
+    const my = cy + Math.sin(angle) * distance;
+
+    const img = Math.random() > 0.5 ? fatherImg : motherImg;
+    
+    monsters.push({
+        x: mx, y: my, 
+        size: 130, // Extremely huge faces
+        img: img,
+        hp: 60, // Takes about 1 second of direct light to burn them
+        maxHp: 60
+    });
+}
+
+function updateFlashlight() {
+    // Calculate angle from player to mouse
+    beamAngle = Math.atan2(mouseY - cy, mouseX - cx);
+
+    // Occasional terrifying flicker effect
+    if (Math.random() < 0.01 + (score * 0.0001)) {
+        flickerTimer = 5 + Math.random() * 10;
+    }
+
+    if (flickerTimer > 0) {
+        beamWidth = Math.random() * 0.3; // Flashlight dying!
+        flickerTimer--;
+    } else {
+        beamWidth = defaultBeamWidth;
+    }
+}
+
+// --- 5. MAIN LOOP ---
+function draw() {
+    // 1. Fill entire screen with pitch black
+    ctx.fillStyle = "#020000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (gameState === 'PLAYING') {
+        frames++;
+        updateFlashlight();
+
+        // Increase difficulty over time
+        spawnRate = Math.max(30, 100 - Math.floor(score * 1.5));
+        monsterSpeed = 2.5 + (score * 0.05);
+
+        if (frames % spawnRate === 0) spawnMonster();
+
+        // --- THE MAGIC CLIPPING MASK (FLASHLIGHT EFFECT) ---
+        // We cut a hole in the darkness so you can ONLY see what's in the beam
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        // The cone of light
+        ctx.arc(cx, cy, 1500, beamAngle - beamWidth / 2, beamAngle + beamWidth / 2);
+        ctx.lineTo(cx, cy);
+        // Also keep a small dim circle around the player so you can see yourself
+        ctx.arc(cx, cy, playerSize, 0, Math.PI * 2);
+        ctx.clip(); // <--- This command hides EVERYTHING outside the path!
+
+        // Draw Lit Floor (Only visible inside the clip path)
+        let grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 500);
+        grd.addColorStop(0, "rgba(255, 255, 255, 0.5)"); // Bright center
+        grd.addColorStop(1, "rgba(255, 0, 0, 0.0)"); // Fades to bloody dark edges
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // --- UPDATE & DRAW MONSTERS (Only visible in the light!) ---
+        for (let i = monsters.length - 1; i >= 0; i--) {
+            let m = monsters[i];
+            
+            // Calculate angle between monster and player
+            let mAngle = Math.atan2(cy - m.y, cx - m.x);
+            let dist = Math.hypot(cx - m.x, cy - m.y);
+
+            // Check if monster is inside the flashlight beam
+            // Normalize angles to check bounds
+            let angleDiff = mAngle - beamAngle;
+            // Handle wrap-around
+            while(angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+            while(angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+            
+            let inBeam = Math.abs(angleDiff) < beamWidth / 2;
+
+            if (inBeam) {
+                // THE LIGHT BURNS THEM!
+                m.hp -= 2; 
+                // Push them back slightly or slow them to a crawl
+                m.x += Math.cos(mAngle) * 0.5;
+                m.y += Math.sin(mAngle) * 0.5;
+                
+                // Draw a burning red effect around them
+                ctx.shadowBlur = 30; ctx.shadowColor = "#ff0000";
+            } else {
+                // IN THE DARK, THEY SPRINT FULL SPEED AT YOU
+                m.x += Math.cos(mAngle) * monsterSpeed;
+                m.y += Math.sin(mAngle) * monsterSpeed;
+                ctx.shadowBlur = 0;
+            }
+
+            // Draw Monster Face
+            if (m.img.complete) {
+                ctx.drawImage(m.img, m.x - m.size/2, m.y - m.size/2, m.size, m.size);
+                ctx.strokeStyle = inBeam ? "#ff0000" : "#fff"; 
+                ctx.lineWidth = 4;
+                ctx.strokeRect(m.x - m.size/2, m.y - m.size/2, m.size, m.size);
+                
+                // Draw HP bar if taking damage
+                if (inBeam && m.hp > 0) {
+                    ctx.fillStyle = "#ff0000";
+                    ctx.fillRect(m.x - m.size/2, m.y - m.size/2 - 15, m.size * (m.hp / m.maxHp), 8);
+                }
+            }
+
+            // DID THEY DIE?
+            if (m.hp <= 0) {
+                score += 10;
+                scoreEl.innerText = "SCORE: " + score;
+                monsters.splice(i, 1);
+                continue;
+            }
+
+            // DID THEY REACH YOU?
+            if (dist < playerSize/2 + m.size/3) {
+                triggerGameOver(m.img.src);
+            }
+        }
+
+        // --- DRAW PLAYER (SON) ---
+        if (sonImg.complete) {
+            ctx.drawImage(sonImg, cx - playerSize/2, cy - playerSize/2, playerSize, playerSize);
+            ctx.strokeStyle = "#ff0000"; ctx.lineWidth = 3;
+            ctx.strokeRect(cx - playerSize/2, cy - playerSize/2, playerSize, playerSize);
+        }
+
+        // Stop clipping so UI can draw normally
+        ctx.restore();
+    }
+
+    requestAnimationFrame(draw);
+}
+
+// --- 6. GAME OVER LOGIC (JUMPSCARE) ---
+function triggerGameOver(killerImageSrc) {
+    gameState = 'GAMEOVER';
+    
+    // 1. Violent Screen Shake
+    gameContainer.classList.add('shaking');
+    setTimeout(() => gameContainer.classList.remove('shaking'), 500);
+
+    // 2. Giant Jumpscare overlay!
+    jumpscareImg.src = killerImageSrc;
+    jumpscareImg.classList.add('scare-active');
+
+    crashMsg.style.display = 'block';
+    startBtn.style.display = 'inline-block';
+    startBtn.innerText = "RESTART";
+}
+
+// --- 7. INPUT HANDLING ---
+function updateAim(clientX, clientY) {
+    if (gameState !== 'PLAYING') return;
+    const rect = canvas.getBoundingClientRect();
+    mouseX = clientX - rect.left;
+    mouseY = clientY - rect.top;
+}
+
+// Mouse controls
+canvas.addEventListener('mousemove', (e) => updateAim(e.clientX, e.clientY));
+
+// Touch controls (Drag finger across screen to aim)
+canvas.addEventListener('touchmove', (e) => { 
+    e.preventDefault(); 
+    updateAim(e.touches[0].clientX, e.touches[0].clientY); 
+}, { passive: false });
+
+startBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    unlockAudio();
+    
+    gameState = 'PLAYING';
+    score = 0; scoreEl.innerText = "SCORE: 0";
+    frames = 0; 
+    monsters = [];
+    flickerTimer = 0;
+
+    jumpscareImg.classList.remove('scare-active');
+    crashMsg.style.display = 'none';
+    startBtn.style.display = 'none';
+});
+
+// Start loop
+draw();
+</script>
+</body>
+</html>
