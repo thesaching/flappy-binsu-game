@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>The Relentless Chase</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&display=swap');
+
+        body { 
+            margin: 0; background: #050000; display: flex; justify-content: center; align-items: center; 
+            height: 100vh; font-family: 'Creepster', cursive; overflow: hidden; touch-action: none; user-select: none;
+        }
+        #game-container { position: relative; width: 100%; height: 100%; max-width: 900px; }
+        
+        canvas { 
+            display: block; width: 100%; height: 100%; 
+            background: linear-gradient(to bottom, #1a0000, #4a0000, #000000); 
+            box-shadow: inset 0 0 150px #000;
+        }
+
+        #ui { 
+            position: absolute; top: 20px; width: 100%; 
+            color: #ff0000; text-align: center; pointer-events: none; 
+            text-shadow: 2px 2px 0 #000, 0 0 20px #ff0000; z-index: 10; 
+            display: flex; justify-content: space-between; padding: 0 40px; box-sizing: border-box;
+        }
+        
+        h1 { margin: 0; font-size: 40px; letter-spacing: 2px; }
+        
+        #center-ui {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; pointer-events: auto; z-index: 20;
+        }
+
+        .crash-text { color: #ff0000; font-size: 70px; text-transform: uppercase; text-shadow: 0 0 30px #ff0000; margin-bottom: 20px; display: none;}
+        
+        #start-btn {
+            padding: 15px 50px; font-size: 40px; background: transparent; color: #ff0000;
+            border: 4px solid #ff0000; border-radius: 10px; cursor: pointer;
+            box-shadow: 0 0 30px rgba(255,0,0,0.6), inset 0 0 20px rgba(255,0,0,0.6); 
+            font-family: 'Creepster', cursive; letter-spacing: 3px; text-transform: uppercase;
+            background-color: rgba(0,0,0,0.9);
+            transition: all 0.2s;
+        }
+        #start-btn:hover { background-color: #ff0000; color: #000; }
+
+        @keyframes shake {
+            0% { transform: translate(4px, 4px) rotate(0deg); }
+            20% { transform: translate(-4px, 0px) rotate(2deg); }
+            40% { transform: translate(4px, -4px) rotate(-2deg); }
+            60% { transform: translate(-4px, 4px) rotate(0deg); }
+            80% { transform: translate(0px, -4px) rotate(2deg); }
+            100% { transform: translate(-4px, -4px) rotate(-2deg); }
+        }
+        .shaking { animation: shake 0.3s; }
+        
+        /* Flashing red screen for damage */
+        #damage-flash {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 0, 0, 0.6); pointer-events: none; opacity: 0; z-index: 15;
+            transition: opacity 0.1s;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="damage-flash"></div>
+        <div id="ui">
+            <h1 id="score">DISTANCE: 0m</h1>
+            <h1 id="danger-level" style="color: #ffaa00;">THREAT: LOW</h1>
+        </div>
+        <div id="center-ui">
+            <div id="crash-msg" class="crash-text">NO ESCAPE</div>
+            <button id="start-btn">RUN</button>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const dangerEl = document.getElementById('danger-level');
+const startBtn = document.getElementById('start-btn');
+const crashMsg = document.getElementById('crash-msg');
+const gameContainer = document.getElementById('game-container');
+const damageFlash = document.getElementById('damage-flash');
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth > 900 ? 900 : window.innerWidth;
+    canvas.height = window.innerHeight > 500 ? 500 : window.innerHeight; // Keep landscape
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- 1. AUDIO SETUP ---
+const bgMusic = new Audio('https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kir.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.9; 
+let audioUnlocked = false;
+
+function unlockAudio() {
+    if (!audioUnlocked) {
+        bgMusic.play().catch(err => console.log("Audio waiting for interaction."));
+        audioUnlocked = true;
+    }
+}
+
+// --- 2. LOAD LARGE IMAGES ---
+const sonImg = new Image(); sonImg.crossOrigin = "anonymous";
+sonImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/varu.jpeg'; 
+
+const fatherImg = new Image(); fatherImg.crossOrigin = "anonymous";
+fatherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/easha.jpeg'; 
+
+const motherImg = new Image(); motherImg.crossOrigin = "anonymous";
+motherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kavitha.jpeg'; 
+
+// --- 3. GAME VARIABLES ---
+let gameState = 'IDLE'; 
+let distance = 0;
+let frames = 0;
+let gameSpeed = 6;
+
+const groundY = canvas.height - 50;
+
+// Player (The Son)
+const player = { 
+    defaultX: canvas.width / 2, // Ideal position in middle of screen
+    x: canvas.width / 2, 
+    y: groundY - 80, 
+    size: 80, 
+    vy: 0, 
+    gravity: 0.8, 
+    jumpPower: -14, 
+    isGrounded: true 
+};
+
+// The Chasers (Parents wall on the left)
+let chaserX = -250; // Starts off-screen
+let chaserBaseSpeed = 0.5; // How fast they passively creep up
+
+let obstacles = [];
+let groundLines = [];
+for(let i=0; i<15; i++) groundLines.push({ x: Math.random() * canvas.width, w: Math.random() * 80 + 20 });
+
+// --- 4. GAME LOGIC ---
+function spawnObstacle() {
+    // Bloody spikes on the ground
+    const size = 50 + Math.random() * 30;
+    obstacles.push({
+        x: canvas.width,
+        y: groundY - size,
+        w: 40,
+        h: size,
+        hit: false
+    });
+}
+
+function updateDangerUI() {
+    // Update threat level text based on how close parents are
+    let distToParents = player.x - (chaserX + 250); // 250 is the width of the monster wall
+    if (distToParents < 50) {
+        dangerEl.innerText = "THREAT: CRITICAL!";
+        dangerEl.style.color = "#ff0000";
+    } else if (distToParents < 200) {
+        dangerEl.innerText = "THREAT: HIGH";
+        dangerEl.style.color = "#ff6b6b";
+    } else {
+        dangerEl.innerText = "THREAT: LOW";
+        dangerEl.style.color = "#ffaa00";
+    }
+}
+
+// --- 5. MAIN LOOP ---
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw Ground
+    ctx.fillStyle = "#110000";
+    ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+    ctx.fillStyle = "#550000"; // Blood red trim
+    ctx.fillRect(0, groundY, canvas.width, 5);
+
+    if (gameState === 'PLAYING') {
+        frames++;
+
+        // Increase base speed as you survive longer
+        gameSpeed = 6 + (distance * 0.002);
+        
+        // --- 1. MOVE GROUND & OBSTACLES ---
+        ctx.fillStyle = "#330000";
+        for(let gl of groundLines) {
+            gl.x -= gameSpeed;
+            if(gl.x + gl.w < 0) gl.x = canvas.width + Math.random() * 50;
+            ctx.fillRect(gl.x, groundY + 10 + Math.random()*20, gl.w, 4);
+        }
+
+        distance += gameSpeed / 10;
+        scoreEl.innerText = "DISTANCE: " + Math.floor(distance) + "m";
+
+        let spawnRate = Math.max(50, 100 - Math.floor(distance * 0.05));
+        if (frames % spawnRate === 0) spawnObstacle();
+
+        // --- 2. PLAYER PHYSICS ---
+        player.vy += player.gravity;
+        player.y += player.vy;
+
+        if (player.y + player.size >= groundY) {
+            player.y = groundY - player.size;
+            player.vy = 0;
+            player.isGrounded = true;
+        }
+
+        // Slowly recover player position to the right if they stumbled
+        if (player.x < player.defaultX) {
+            player.x += 0.5;
+        }
+
+        // --- 3. OBSTACLE COLLISION ---
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            let o = obstacles[i];
+            o.x -= gameSpeed;
+
+            // Draw Bloody Spike
+            ctx.fillStyle = "#ff0000";
+            ctx.beginPath();
+            ctx.moveTo(o.x + o.w/2, o.y);
+            ctx.lineTo(o.x + o.w, o.y + o.h);
+            ctx.lineTo(o.x, o.y + o.h);
+            ctx.fill();
+
+            // Check Collision
+            if (!o.hit && 
+                player.x + 10 < o.x + o.w &&
+                player.x + player.size - 10 > o.x &&
+                player.y + 10 < o.y + o.h &&
+                player.y + player.size > o.y) 
+            {
+                o.hit = true;
+                // YOU STUMBLED! Push player drastically to the left towards the parents
+                player.x -= 100;
+                
+                // Flash screen red
+                damageFlash.style.opacity = 1;
+                setTimeout(() => damageFlash.style.opacity = 0, 150);
+                gameContainer.classList.add('shaking');
+                setTimeout(() => gameContainer.classList.remove('shaking'), 300);
+            }
+
+            if (o.x + o.w < 0) obstacles.splice(i, 1);
+        }
+
+        // --- 4. THE CREEPING PARENTS (THE CHASER) ---
+        // Parents slowly move to the right. The longer you play, the faster their baseline speed.
+        chaserBaseSpeed = 0.5 + (distance * 0.001);
+        chaserX += chaserBaseSpeed;
+        
+        // Jitter effect to make them look terrifying and chaotic
+        let jitterX = (Math.random() - 0.5) * 15;
+        let jitterY = (Math.random() - 0.5) * 15;
+
+        // Draw the massive, overlapping wall of parent faces
+        if (fatherImg.complete && motherImg.complete) {
+            ctx.save();
+            ctx.translate(chaserX + jitterX, jitterY);
+            
+            // Giant Father Face (Top)
+            ctx.drawImage(fatherImg, -100, -50, 350, 350);
+            // Giant Mother Face (Bottom)
+            ctx.drawImage(motherImg, -50, 200, 300, 300);
+            
+            // Draw a dark gradient fading out from the parents to eat the light
+            let gradient = ctx.createLinearGradient(250, 0, 400, 0);
+            gradient.addColorStop(0, "rgba(0,0,0,0.9)");
+            gradient.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = gradient;
+            ctx.fillRect(150, 0, 250, canvas.height);
+            
+            ctx.restore();
+        }
+
+        // --- 5. DEATH CHECK ---
+        // If the creeping wall of parents catches the son's X position
+        if (player.x <= chaserX + 200) {
+            triggerGameOver();
+        }
+
+        // --- 6. DRAW PLAYER ---
+        if (sonImg.complete) {
+            ctx.drawImage(sonImg, player.x, player.y, player.size, player.size);
+            ctx.strokeStyle = "#ff0000"; ctx.lineWidth = 3;
+            ctx.strokeRect(player.x, player.y, player.size, player.size);
+        }
+        
+        updateDangerUI();
+    }
+
+    if (gameState === 'GAMEOVER') {
+        // Red overlay
+        ctx.fillStyle = "rgba(255, 0, 0, 0.6)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw the monsters consuming the son
+        if (fatherImg.complete) ctx.drawImage(fatherImg, player.x - 100, player.y - 150, 300, 300);
+        if (motherImg.complete) ctx.drawImage(motherImg, player.x - 50, player.y, 250, 250);
+    }
+
+    requestAnimationFrame(draw);
+}
+
+// --- 6. GAME OVER LOGIC ---
+function triggerGameOver() {
+    gameState = 'GAMEOVER';
+    
+    gameContainer.classList.add('shaking');
+    setTimeout(() => gameContainer.classList.remove('shaking'), 500);
+
+    crashMsg.style.display = 'block';
+    startBtn.style.display = 'inline-block';
+    startBtn.innerText = "TRY TO RUN AGAIN";
+    dangerEl.innerText = "STATUS: CONSUMED";
+    dangerEl.style.color = "#ff0000";
+}
+
+// --- 7. INPUT HANDLING (JUMP) ---
+function handleJump(e) {
+    if (e) e.preventDefault();
+    unlockAudio();
+
+    if (gameState === 'PLAYING') {
+        if (player.isGrounded) {
+            player.vy = player.jumpPower;
+            player.isGrounded = false;
+        }
+    }
+}
+
+// Mouse/Touch/Keyboard
+window.addEventListener('mousedown', handleJump);
+window.addEventListener('touchstart', handleJump, { passive: false });
+window.addEventListener('keydown', (e) => { 
+    if (e.code === 'Space' || e.code === 'ArrowUp') handleJump(e); 
+});
+
+startBtn.addEventListener('click', (e) => {
+    e.stopPropagation(); // Prevent immediate jump on start
+    unlockAudio();
+    
+    gameState = 'PLAYING';
+    distance = 0;
+    frames = 0;
+    gameSpeed = 6;
+    
+    player.x = player.defaultX;
+    player.y = groundY - player.size;
+    player.vy = 0;
+    
+    chaserX = -250; // Reset parents back off-screen
+    obstacles = [];
+
+    crashMsg.style.display = 'none';
+    startBtn.style.display = 'none';
+});
+
+// Start visual loop
+draw();
+</script>
+</body>
+</html>
