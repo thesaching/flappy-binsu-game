@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Nightmare Arena: Flashlight Escape</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&display=swap');
+
+        body { 
+            margin: 0; 
+            background: #000; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            font-family: 'Creepster', cursive; 
+            overflow: hidden; 
+            touch-action: none; 
+            user-select: none;
+        }
+        #game-container { position: relative; width: 100%; height: 100%; max-width: 800px; }
+        
+        canvas { 
+            display: block; 
+            width: 100%; 
+            height: 100%; 
+            background: #110000; /* Deep bloody black */
+            box-shadow: inset 0 0 100px #000;
+            cursor: none;
+        }
+
+        #ui { 
+            position: absolute; top: 20px; width: 100%; 
+            color: #ff0000; text-align: center; pointer-events: none; 
+            text-shadow: 2px 2px 0 #000, 0 0 20px #ff0000; z-index: 10; 
+            display: flex; justify-content: space-between; padding: 0 30px; box-sizing: border-box;
+        }
+        
+        h1 { margin: 0; font-size: 45px; letter-spacing: 2px; transition: transform 0.1s; }
+        h2 { margin: 0; font-size: 30px; color: #aaa; text-shadow: 2px 2px 0 #000; }
+        
+        #center-ui {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; pointer-events: auto; z-index: 20;
+        }
+
+        .crash-text { color: #ff0000; font-size: 65px; text-transform: uppercase; text-shadow: 0 0 30px #ff0000; margin-bottom: 10px; display: none;}
+        
+        #start-btn {
+            padding: 15px 40px; font-size: 35px; background: transparent; color: #ff0000;
+            border: 3px solid #ff0000; border-radius: 10px; cursor: pointer;
+            box-shadow: 0 0 20px rgba(255,0,0,0.5), inset 0 0 20px rgba(255,0,0,0.5); 
+            font-family: 'Creepster', cursive; letter-spacing: 2px; text-transform: uppercase;
+            background-color: rgba(0,0,0,0.8);
+        }
+        #start-btn:hover { background-color: #ff0000; color: #000; }
+
+        @keyframes shake {
+            0% { transform: translate(3px, 3px) rotate(0deg); }
+            10% { transform: translate(-3px, -4px) rotate(-1deg); }
+            20% { transform: translate(-5px, 0px) rotate(2deg); }
+            30% { transform: translate(5px, 4px) rotate(0deg); }
+            40% { transform: translate(3px, -3px) rotate(2deg); }
+            50% { transform: translate(-3px, 4px) rotate(-1deg); }
+            60% { transform: translate(-5px, 3px) rotate(0deg); }
+            70% { transform: translate(5px, 3px) rotate(-2deg); }
+            80% { transform: translate(-3px, -3px) rotate(1deg); }
+            90% { transform: translate(3px, 4px) rotate(0deg); }
+            100% { transform: translate(3px, -4px) rotate(-1deg); }
+        }
+        .shaking { animation: shake 0.4s; }
+        .score-pop { transform: scale(1.4); text-shadow: 0 0 50px #ff0000 !important; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui">
+            <h1 id="score">SCORE: 0</h1>
+            <h2 id="high-score">BEST: 0</h2>
+        </div>
+        <div id="center-ui">
+            <div id="crash-msg" class="crash-text">THEY CAUGHT YOU</div>
+            <button id="start-btn">ENTER THE DARK</button>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const highScoreEl = document.getElementById('high-score');
+const startBtn = document.getElementById('start-btn');
+const crashMsg = document.getElementById('crash-msg');
+const gameContainer = document.getElementById('game-container');
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth > 800 ? 800 : window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- 1. AUDIO SETUP ---
+const bgMusic = new Audio('https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kir.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.8; 
+let audioUnlocked = false;
+
+function unlockAudio() {
+    if (!audioUnlocked) {
+        bgMusic.play().catch(err => console.log("Audio waiting for user interaction."));
+        audioUnlocked = true;
+    }
+}
+
+// --- 2. LOAD LARGE IMAGES ---
+const sonImg = new Image(); sonImg.crossOrigin = "anonymous";
+sonImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/varu.jpeg'; 
+
+const fatherImg = new Image(); fatherImg.crossOrigin = "anonymous";
+fatherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/easha.jpeg'; 
+
+const motherImg = new Image(); motherImg.crossOrigin = "anonymous";
+motherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kavitha.jpeg'; 
+
+// --- 3. GAME VARIABLES ---
+let gameState = 'IDLE'; 
+let score = 0;
+let bestScore = localStorage.getItem('nightmareArenaHighScore') || 0;
+highScoreEl.innerText = "BEST: " + bestScore;
+
+// Target for the player to move towards (mouse/touch position)
+let targetX = canvas.width / 2;
+let targetY = canvas.height / 2;
+
+const player = { x: canvas.width / 2, y: canvas.height / 2, size: 70 }; // Huge player face
+let monsters = [];
+let freedomOrb = { x: -100, y: -100, radius: 15, pulse: 0 };
+
+let baseMonsterSpeed = 1.5;
+let currentMonsterSpeed = baseMonsterSpeed;
+
+// --- 4. GAME LOGIC FUNCTIONS ---
+function spawnMonster() {
+    // Spawns monsters just outside the edges of the canvas
+    const size = 90; // Huge monster faces
+    let x, y;
+    if (Math.random() > 0.5) {
+        x = Math.random() > 0.5 ? -size : canvas.width + size;
+        y = Math.random() * canvas.height;
+    } else {
+        x = Math.random() * canvas.width;
+        y = Math.random() > 0.5 ? -size : canvas.height + size;
+    }
+
+    const img = Math.random() > 0.5 ? fatherImg : motherImg;
+    monsters.push({ x: x, y: y, size: size, img: img });
+}
+
+function relocateOrb() {
+    // Places the Freedom Orb randomly, keeping it away from edges
+    const padding = 50;
+    freedomOrb.x = padding + Math.random() * (canvas.width - padding * 2);
+    freedomOrb.y = padding + Math.random() * (canvas.height - padding * 2);
+}
+
+// --- 5. MAIN GAME LOOP ---
+function draw() {
+    // Draw base bloody background
+    ctx.fillStyle = "#1a0000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (gameState === 'PLAYING') {
+        
+        // --- PLAYER MOVEMENT (Smooth Follow) ---
+        player.x += (targetX - player.x) * 0.15;
+        player.y += (targetY - player.y) * 0.15;
+        
+        // Keep player in bounds
+        player.x = Math.max(player.size/2, Math.min(canvas.width - player.size/2, player.x));
+        player.y = Math.max(player.size/2, Math.min(canvas.height - player.size/2, player.y));
+
+        // --- DRAW FREEDOM ORB ---
+        freedomOrb.pulse += 0.1;
+        const currentRadius = freedomOrb.radius + Math.sin(freedomOrb.pulse) * 5;
+        ctx.beginPath();
+        ctx.arc(freedomOrb.x, freedomOrb.y, currentRadius, 0, Math.PI * 2);
+        ctx.fillStyle = "#00e5ff"; // Bright cyan glow in the dark
+        ctx.shadowBlur = 20; ctx.shadowColor = "#00e5ff";
+        ctx.fill();
+        ctx.shadowBlur = 0; // Reset
+
+        // ORB COLLISION (+10 Score)
+        const distToOrb = Math.hypot(player.x - freedomOrb.x, player.y - freedomOrb.y);
+        if (distToOrb < player.size/2 + freedomOrb.radius) {
+            score += 10;
+            scoreEl.innerText = "SCORE: " + score;
+            relocateOrb();
+            
+            // UI Pop
+            scoreEl.classList.add('score-pop');
+            setTimeout(() => scoreEl.classList.remove('score-pop'), 200);
+
+            // ESCALATE DIFFICULTY
+            currentMonsterSpeed += 0.15; // Monsters get faster
+            
+            // Every 50 points, spawn an entirely NEW monster to chase you!
+            if (score % 50 === 0) {
+                spawnMonster();
+            }
+        }
+
+        // --- UPDATE & DRAW MONSTERS ---
+        for (let m of monsters) {
+            // Homing logic: Monsters constantly move towards the player
+            const angle = Math.atan2(player.y - m.y, player.x - m.x);
+            m.x += Math.cos(angle) * currentMonsterSpeed;
+            m.y += Math.sin(angle) * currentMonsterSpeed;
+
+            if (m.img.complete) {
+                ctx.drawImage(m.img, m.x - m.size/2, m.y - m.size/2, m.size, m.size);
+                // Creepy red border
+                ctx.strokeStyle = "#8b0000"; ctx.lineWidth = 3; 
+                ctx.strokeRect(m.x - m.size/2, m.y - m.size/2, m.size, m.size);
+            }
+
+            // PLAYER vs MONSTER COLLISION (Death)
+            // Slightly forgiving hitbox so you don't die instantly if they clip a corner
+            const distToMonster = Math.hypot(player.x - m.x, player.y - m.y);
+            if (distToMonster < (player.size/2 + m.size/2) * 0.8) {
+                triggerGameOver();
+            }
+        }
+
+        // --- DRAW PLAYER (SON) ---
+        if (sonImg.complete) {
+            ctx.drawImage(sonImg, player.x - player.size/2, player.y - player.size/2, player.size, player.size);
+            ctx.strokeStyle = "#ff0000"; ctx.lineWidth = 4;
+            ctx.strokeRect(player.x - player.size/2, player.y - player.size/2, player.size, player.size);
+        }
+
+        // --- THE FLASHLIGHT EFFECT (The Horror Mask) ---
+        // Draws pitch black everywhere EXCEPT a radial gradient hole around the player
+        let gradient = ctx.createRadialGradient(player.x, player.y, player.size, player.x, player.y, 250);
+        gradient.addColorStop(0, 'rgba(0,0,0,0)'); // Transparent near player
+        gradient.addColorStop(0.5, 'rgba(0,0,0,0.8)'); // Very dark
+        gradient.addColorStop(1, 'rgba(0,0,0,0.99)'); // Pitch black at edges
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    if (gameState === 'GAMEOVER') {
+        // Draw the static frame with everything revealed in bright red
+        ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        for (let m of monsters) {
+            if (m.img.complete) ctx.drawImage(m.img, m.x - m.size/2, m.y - m.size/2, m.size, m.size);
+        }
+        if (sonImg.complete) ctx.drawImage(sonImg, player.x - player.size/2, player.y - player.size/2, player.size, player.size);
+    }
+
+    requestAnimationFrame(draw);
+}
+
+// --- 6. GAME OVER LOGIC ---
+function triggerGameOver() {
+    gameState = 'GAMEOVER';
+    
+    if (score > bestScore) {
+        bestScore = score;
+        localStorage.setItem('nightmareArenaHighScore', bestScore);
+        highScoreEl.innerText = "BEST: " + bestScore;
+    }
+    
+    gameContainer.classList.add('shaking');
+    setTimeout(() => gameContainer.classList.remove('shaking'), 400);
+
+    crashMsg.style.display = 'block';
+    startBtn.style.display = 'inline-block';
+    startBtn.innerText = "TRY AGAIN";
+}
+
+// --- 7. INPUT HANDLING ---
+function updateTarget(clientX, clientY) {
+    if (gameState !== 'PLAYING') return;
+    const rect = canvas.getBoundingClientRect();
+    targetX = clientX - rect.left;
+    targetY = clientY - rect.top;
+}
+
+// Mouse tracking
+canvas.addEventListener('mousemove', (e) => updateTarget(e.clientX, e.clientY));
+
+// Touch tracking
+canvas.addEventListener('touchmove', (e) => { 
+    e.preventDefault(); 
+    updateTarget(e.touches[0].clientX, e.touches[0].clientY); 
+}, { passive: false });
+
+startBtn.addEventListener('click', () => {
+    unlockAudio();
+    
+    gameState = 'PLAYING';
+    score = 0;
+    currentMonsterSpeed = baseMonsterSpeed;
+    scoreEl.innerText = "SCORE: 0";
+    
+    monsters = [];
+    player.x = canvas.width / 2;
+    player.y = canvas.height / 2;
+    targetX = player.x;
+    targetY = player.y;
+    
+    // Start with 2 parents hunting you
+    spawnMonster();
+    spawnMonster();
+    relocateOrb();
+
+    crashMsg.style.display = 'none';
+    startBtn.style.display = 'none';
+});
+
+// Start visual loop
+draw();
+</script>
+</body>
+</html>
