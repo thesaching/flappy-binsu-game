@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cavern of Nightmares</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&display=swap');
+
+        body { 
+            margin: 0; background: #000; display: flex; justify-content: center; align-items: center; 
+            height: 100vh; font-family: 'Creepster', cursive; overflow: hidden; touch-action: none; user-select: none;
+        }
+        #game-container { position: relative; width: 100%; height: 100%; max-width: 600px; }
+        
+        canvas { 
+            display: block; width: 100%; height: 100%; 
+            background: linear-gradient(to bottom, #110000, #330000, #110000); 
+            box-shadow: inset 0 0 120px #000;
+        }
+
+        #vignette {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 30%, rgba(0,0,0,0.9) 100%);
+            pointer-events: none; z-index: 5; animation: pulse 2s infinite alternate;
+        }
+
+        @keyframes pulse { 0% { opacity: 0.6; } 100% { opacity: 1; } }
+
+        #ui { 
+            position: absolute; top: 20px; width: 100%; color: #ff0000; text-align: center; 
+            pointer-events: none; text-shadow: 2px 2px 0 #000, 0 0 15px #ff0000; z-index: 10; 
+        }
+        h1 { margin: 0; font-size: 50px; letter-spacing: 3px; }
+        p { margin: 5px 0 0 0; font-size: 20px; color: #aaa; text-shadow: none; font-family: sans-serif; font-weight: bold;}
+        
+        #center-ui {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; pointer-events: auto; z-index: 20;
+        }
+
+        .crash-text { color: #ff0000; font-size: 60px; text-transform: uppercase; text-shadow: 0 0 30px #ff0000; margin-bottom: 20px; display: none;}
+        
+        #start-btn {
+            padding: 15px 40px; font-size: 35px; background: rgba(0,0,0,0.8); color: #ff0000;
+            border: 3px solid #ff0000; border-radius: 10px; cursor: pointer;
+            box-shadow: 0 0 20px rgba(255,0,0,0.6), inset 0 0 20px rgba(255,0,0,0.6); 
+            font-family: 'Creepster', cursive; text-transform: uppercase;
+        }
+        #start-btn:hover { background-color: #ff0000; color: #000; }
+
+        @keyframes shake {
+            0% { transform: translate(3px, 3px) rotate(0deg); }
+            20% { transform: translate(-3px, 0px) rotate(2deg); }
+            40% { transform: translate(3px, -3px) rotate(-2deg); }
+            60% { transform: translate(-3px, 3px) rotate(0deg); }
+            80% { transform: translate(0px, -3px) rotate(2deg); }
+            100% { transform: translate(-3px, -3px) rotate(-2deg); }
+        }
+        .shaking { animation: shake 0.4s; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="vignette"></div>
+        <div id="ui">
+            <h1 id="score">0</h1>
+            <p>TAP TO FLY</p>
+        </div>
+        <div id="center-ui">
+            <div id="crash-msg" class="crash-text">IMPALED</div>
+            <button id="start-btn">ESCAPE</button>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const startBtn = document.getElementById('start-btn');
+const crashMsg = document.getElementById('crash-msg');
+const gameContainer = document.getElementById('game-container');
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth > 600 ? 600 : window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- 1. AUDIO SETUP ---
+const bgMusic = new Audio('https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kir.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.8; 
+let audioUnlocked = false;
+
+function unlockAudio() {
+    if (!audioUnlocked) {
+        bgMusic.play().catch(err => console.log("Audio waiting for user interaction."));
+        audioUnlocked = true;
+    }
+}
+
+// --- 2. LOAD IMAGES ---
+const sonImg = new Image(); sonImg.crossOrigin = "anonymous";
+sonImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/varu.jpeg'; 
+
+const fatherImg = new Image(); fatherImg.crossOrigin = "anonymous";
+fatherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/easha.jpeg'; 
+
+const motherImg = new Image(); motherImg.crossOrigin = "anonymous";
+motherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kavitha.jpeg'; 
+
+// --- 3. GAME VARIABLES ---
+let gameState = 'IDLE'; 
+let score = 0;
+let frames = 0;
+
+let gameSpeed = 3.5;
+const bird = { x: 80, y: 300, size: 45, velocity: 0, gravity: 0.5, jump: -8 };
+let cones = [];
+
+// --- 4. CONE (SPIKE) GENERATION ---
+function spawnCones() {
+    const gap = 180; // Distance between top and bottom spike
+    const minHeight = 50;
+    const maxHeight = canvas.height - gap - minHeight;
+    const topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1) + minHeight);
+    
+    const coneWidth = 70; // Narrower, sharper obstacles
+
+    // Top Cone (Father) - Points Down
+    cones.push({
+        x: canvas.width, y: 0, w: coneWidth, h: topHeight, 
+        img: fatherImg, type: 'top', passed: false
+    });
+    
+    // Bottom Cone (Mother) - Points Up
+    cones.push({
+        x: canvas.width, y: topHeight + gap, w: coneWidth, h: canvas.height - topHeight - gap, 
+        img: motherImg, type: 'bottom', passed: true // Score is counted on the top cone
+    });
+}
+
+// --- 5. MAIN LOOP ---
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (gameState === 'PLAYING') {
+        frames++;
+
+        // Increase speed slowly
+        gameSpeed = 3.5 + (score * 0.05);
+
+        // Player Physics
+        bird.velocity += bird.gravity;
+        bird.y += bird.velocity;
+
+        // Spawn Cones
+        let spawnRate = Math.max(60, 110 - Math.floor(score * 1.5));
+        if (frames % spawnRate === 0) spawnCones();
+
+        // Update & Draw Cones
+        for (let i = cones.length - 1; i >= 0; i--) {
+            let c = cones[i];
+            c.x -= gameSpeed;
+
+            // DRAW TRIANGULAR CONES WITH FACES
+            ctx.save();
+            ctx.beginPath();
+            
+            if (c.type === 'top') {
+                // Triangle pointing DOWN
+                ctx.moveTo(c.x, c.y); // Top Left
+                ctx.lineTo(c.x + c.w, c.y); // Top Right
+                ctx.lineTo(c.x + c.w / 2, c.y + c.h); // Bottom Tip
+            } else {
+                // Triangle pointing UP
+                ctx.moveTo(c.x + c.w / 2, c.y); // Top Tip
+                ctx.lineTo(c.x + c.w, c.y + c.h); // Bottom Right
+                ctx.lineTo(c.x, c.y + c.h); // Bottom Left
+            }
+            
+            ctx.closePath();
+            
+            // Clip the image into the triangle shape
+            ctx.clip();
+            if (c.img.complete) {
+                ctx.drawImage(c.img, c.x, c.y, c.w, c.h);
+            } else {
+                ctx.fillStyle = "#8b0000"; ctx.fill();
+            }
+            ctx.restore();
+
+            // Draw bloody border around the cone
+            ctx.strokeStyle = "#ff0000";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            if (c.type === 'top') {
+                ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + c.w, c.y); ctx.lineTo(c.x + c.w / 2, c.y + c.h); ctx.closePath();
+            } else {
+                ctx.moveTo(c.x + c.w / 2, c.y); ctx.lineTo(c.x + c.w, c.y + c.h); ctx.lineTo(c.x, c.y + c.h); ctx.closePath();
+            }
+            ctx.stroke();
+
+            // --- COLLISION DETECTION ---
+            // Using a slightly smaller rectangular bounding box for fairness since it's a triangle
+            const paddingX = 15; 
+            const paddingY = 15;
+            
+            if (
+                bird.x + paddingX < c.x + c.w - paddingX &&
+                bird.x + bird.size - paddingX > c.x + paddingX &&
+                bird.y + paddingY < c.y + c.h &&
+                bird.y + bird.size - paddingY > c.y
+            ) {
+                triggerGameOver();
+            }
+
+            // --- SCORING ---
+            if (!c.passed && bird.x > c.x + c.w) {
+                score++;
+                scoreEl.innerText = score;
+                c.passed = true;
+            }
+
+            if (c.x + c.w < 0) cones.splice(i, 1);
+        }
+
+        // Draw Player (The Son)
+        if (sonImg.complete) {
+            ctx.drawImage(sonImg, bird.x, bird.y, bird.size, bird.size);
+        }
+        ctx.strokeStyle = "#ff0000"; ctx.lineWidth = 2;
+        ctx.strokeRect(bird.x, bird.y, bird.size, bird.size);
+
+        // Floor/Ceiling Death
+        if (bird.y + bird.size >= canvas.height || bird.y <= 0) {
+            triggerGameOver();
+        }
+    }
+
+    if (gameState === 'GAMEOVER') {
+        ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Static draw of player
+        if (sonImg.complete) ctx.drawImage(sonImg, bird.x, bird.y, bird.size, bird.size);
+    }
+
+    requestAnimationFrame(draw);
+}
+
+// --- 6. GAME OVER LOGIC ---
+function triggerGameOver() {
+    gameState = 'GAMEOVER';
+    
+    gameContainer.classList.add('shaking');
+    setTimeout(() => gameContainer.classList.remove('shaking'), 400);
+
+    crashMsg.style.display = 'block';
+    startBtn.style.display = 'inline-block';
+    startBtn.innerText = "TRY AGAIN";
+}
+
+// --- 7. INPUT HANDLING ---
+function handleJump(e) {
+    if (e) e.preventDefault(); 
+    unlockAudio();
+
+    if (gameState === 'PLAYING') {
+        bird.velocity = bird.jump;
+    }
+}
+
+window.addEventListener('mousedown', handleJump);
+window.addEventListener('touchstart', handleJump, { passive: false });
+window.addEventListener('keydown', (e) => { if (e.code === 'Space') handleJump(); });
+
+startBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    unlockAudio();
+    
+    gameState = 'PLAYING';
+    score = 0; scoreEl.innerText = "0";
+    frames = 0; gameSpeed = 3.5;
+    
+    bird.y = canvas.height / 2;
+    bird.velocity = 0;
+    cones = [];
+
+    crashMsg.style.display = 'none';
+    startBtn.style.display = 'none';
+});
+
+// Start loop
+draw();
+</script>
+</body>
+</html>
