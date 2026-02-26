@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Silence: Do Not Move</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&display=swap');
+
+        body { 
+            margin: 0; background: #000; display: flex; justify-content: center; align-items: center; 
+            height: 100vh; font-family: 'Creepster', cursive; overflow: hidden; touch-action: none; user-select: none;
+        }
+        #game-container { position: relative; width: 100%; height: 100%; max-width: 600px; }
+        
+        canvas { 
+            display: block; width: 100%; height: 100%; 
+            background: #050000;
+        }
+
+        #ui { 
+            position: absolute; top: 20px; width: 100%; 
+            color: #ff0000; text-align: center; pointer-events: none; 
+            text-shadow: 2px 2px 0 #000, 0 0 20px #ff0000; z-index: 10; 
+            display: flex; justify-content: space-between; padding: 0 30px; box-sizing: border-box;
+        }
+        
+        h1 { margin: 0; font-size: 35px; letter-spacing: 2px; }
+        
+        #center-ui {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; pointer-events: auto; z-index: 20;
+        }
+
+        .instruction { font-size: 24px; color: #fff; font-family: sans-serif; margin-bottom: 20px; text-shadow: 2px 2px 5px #000;}
+        .crash-text { color: #ff0000; font-size: 60px; text-transform: uppercase; text-shadow: 0 0 30px #ff0000; margin-bottom: 10px; display: none;}
+        
+        #start-btn {
+            padding: 15px 40px; font-size: 30px; background: rgba(0,0,0,0.9); color: #ff0000;
+            border: 3px solid #ff0000; border-radius: 5px; cursor: pointer;
+            box-shadow: 0 0 20px rgba(255,0,0,0.6), inset 0 0 10px rgba(255,0,0,0.6); 
+            font-family: 'Creepster', cursive; letter-spacing: 2px;
+            transition: all 0.2s;
+        }
+        #start-btn:hover { background-color: #ff0000; color: #000; }
+
+        /* Jumpscare Image */
+        #jumpscare {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.1);
+            width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; z-index: 15;
+            transition: all 0.1s;
+        }
+        .scare-active { transform: translate(-50%, -50%) scale(1.2) !important; opacity: 1 !important; }
+
+        /* Screen Glitch Effect */
+        @keyframes glitch {
+            0% { filter: invert(0) hue-rotate(0deg); transform: translate(0); }
+            20% { filter: invert(1) hue-rotate(90deg); transform: translate(-5px, 5px); }
+            40% { filter: invert(0) hue-rotate(0deg); transform: translate(5px, -5px); }
+            60% { filter: invert(1) hue-rotate(180deg); transform: translate(-5px, -5px); }
+            80% { filter: invert(0) hue-rotate(0deg); transform: translate(5px, 5px); }
+            100% { filter: invert(0) hue-rotate(0deg); transform: translate(0); }
+        }
+        .glitching { animation: glitch 0.3s infinite; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <img id="jumpscare" src="" alt="scare">
+        <div id="ui">
+            <h1 id="level">STAGE: 1</h1>
+            <h1 id="status" style="color: #aaa;">SAFE</h1>
+        </div>
+        <div id="center-ui">
+            <div id="crash-msg" class="crash-text">THEY HEARD YOU</div>
+            <div id="instructions" class="instruction">HOLD to crawl.<br>RELEASE to freeze.<br>Do not move when they look.</div>
+            <button id="start-btn">BEGIN</button>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const levelEl = document.getElementById('level');
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('start-btn');
+const crashMsg = document.getElementById('crash-msg');
+const instructions = document.getElementById('instructions');
+const gameContainer = document.getElementById('game-container');
+const jumpscareImg = document.getElementById('jumpscare');
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth > 600 ? 600 : window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- 1. AUDIO SETUP ---
+const bgMusic = new Audio('https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kir.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.9; 
+let audioUnlocked = false;
+
+function unlockAudio() {
+    if (!audioUnlocked) {
+        bgMusic.play().catch(err => console.log("Audio waiting for interaction."));
+        audioUnlocked = true;
+    }
+}
+
+// --- 2. LOAD IMAGES ---
+const sonImg = new Image(); sonImg.crossOrigin = "anonymous";
+sonImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/varu.jpeg'; 
+
+const fatherImg = new Image(); fatherImg.crossOrigin = "anonymous";
+fatherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/easha.jpeg'; 
+
+const motherImg = new Image(); motherImg.crossOrigin = "anonymous";
+motherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kavitha.jpeg'; 
+
+// --- 3. GAME VARIABLES ---
+let gameState = 'IDLE'; 
+let stage = 1;
+let frames = 0;
+
+let isMoving = false; // Is the player holding the button?
+
+// Player
+let playerSize = 60;
+let playerY = canvas.height - 100;
+let moveSpeed = 3;
+
+// The Creeping Death (Shadow from bottom)
+let shadowY = canvas.height;
+let shadowSpeed = 0.8;
+
+// Monster State Machine (SLEEP, WARNING, AWAKE)
+let monsterState = 'SLEEP';
+let stateTimer = 100; 
+
+// --- 4. GAME LOGIC ---
+function updateMonsterLogic() {
+    stateTimer--;
+
+    if (stateTimer <= 0) {
+        if (monsterState === 'SLEEP') {
+            // Wake them up! First give a warning glitch
+            monsterState = 'WARNING';
+            stateTimer = 20 + Math.random() * 20; // Very short warning
+            gameContainer.classList.add('glitching');
+            statusEl.innerText = "!";
+            statusEl.style.color = "#ffff00";
+        } 
+        else if (monsterState === 'WARNING') {
+            // They are fully awake and staring
+            monsterState = 'AWAKE';
+            stateTimer = 40 + Math.random() * 80; // Stay awake for a bit
+            gameContainer.classList.remove('glitching');
+            statusEl.innerText = "DO NOT MOVE";
+            statusEl.style.color = "#ff0000";
+        } 
+        else if (monsterState === 'AWAKE') {
+            // Go back to sleep
+            monsterState = 'SLEEP';
+            // Sleep duration gets shorter as stages increase
+            stateTimer = Math.max(40, (150 - (stage * 10)) + Math.random() * 100); 
+            statusEl.innerText = "SAFE";
+            statusEl.style.color = "#555";
+        }
+    }
+}
+
+// --- 5. MAIN LOOP ---
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (gameState === 'PLAYING') {
+        frames++;
+        updateMonsterLogic();
+
+        // 1. UPDATE PLAYER
+        if (isMoving) {
+            playerY -= moveSpeed;
+            // Draw a subtle trail to show movement
+            ctx.fillStyle = "rgba(255,255,255,0.1)";
+            ctx.fillRect(canvas.width/2 - playerSize/2, playerY, playerSize, playerSize + 20);
+        }
+
+        // 2. UPDATE CREEPING SHADOW
+        shadowY -= shadowSpeed;
+
+        // --- DRAWING ---
+
+        // Draw the Exit Line
+        ctx.fillStyle = "#00e5ff";
+        ctx.fillRect(0, 80, canvas.width, 5);
+        ctx.shadowBlur = 20; ctx.shadowColor = "#00e5ff";
+        ctx.fillStyle = "#fff"; ctx.font = "20px sans-serif"; ctx.fillText("ESCAPE", canvas.width/2 - 40, 70);
+        ctx.shadowBlur = 0;
+
+        // Draw The Parents (Top of screen)
+        if (fatherImg.complete && motherImg.complete) {
+            ctx.save();
+            if (monsterState === 'SLEEP') {
+                ctx.globalAlpha = 0.1; // Barely visible in shadows
+            } else if (monsterState === 'WARNING') {
+                ctx.globalAlpha = 0.5; // Fading in fast
+                ctx.translate(Math.random()*10 - 5, Math.random()*10 - 5); // Shaking
+            } else if (monsterState === 'AWAKE') {
+                ctx.globalAlpha = 1.0; // Fully terrifyingly visible
+            }
+
+            ctx.drawImage(fatherImg, canvas.width/2 - 160, 0, 150, 150);
+            ctx.drawImage(motherImg, canvas.width/2 + 10, 0, 150, 150);
+            
+            // Red eyes effect when awake
+            if (monsterState === 'AWAKE') {
+                ctx.fillStyle = "rgba(255,0,0,0.3)";
+                ctx.fillRect(canvas.width/2 - 160, 0, 320, 150);
+            }
+            ctx.restore();
+        }
+
+        // Draw Player (The Son)
+        if (sonImg.complete) {
+            ctx.drawImage(sonImg, canvas.width/2 - playerSize/2, playerY, playerSize, playerSize);
+            // Border changes color based on if you are moving
+            ctx.strokeStyle = isMoving ? "#00e5ff" : "#555";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(canvas.width/2 - playerSize/2, playerY, playerSize, playerSize);
+        }
+
+        // Draw Creeping Shadow (Death from below)
+        let grad = ctx.createLinearGradient(0, shadowY - 100, 0, shadowY);
+        grad.addColorStop(0, "rgba(20, 0, 0, 0)");
+        grad.addColorStop(1, "rgba(20, 0, 0, 1)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, shadowY - 100, canvas.width, 100);
+        ctx.fillStyle = "#050000"; // Solid black/red below the line
+        ctx.fillRect(0, shadowY, canvas.width, canvas.height - shadowY);
+
+
+        // --- WIN / LOSS CONDITIONS ---
+
+        // Loss 1: You moved while they were awake!
+        if (isMoving && monsterState === 'AWAKE') {
+            triggerGameOver("THEY SAW YOU MOVE", Math.random() > 0.5 ? fatherImg.src : motherImg.src);
+        }
+
+        // Loss 2: The shadow caught you!
+        if (shadowY < playerY + playerSize/2) {
+            triggerGameOver("THE DARKNESS CONSUMED YOU", sonImg.src); // Shows your own face corrupted
+        }
+
+        // Win: Reached the top!
+        if (playerY <= 80) {
+            stageComplete();
+        }
+    }
+
+    if (gameState === 'GAMEOVER') {
+        ctx.fillStyle = "rgba(255,0,0,0.3)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    requestAnimationFrame(draw);
+}
+
+// --- 6. GAME OVER / STAGE LOGIC ---
+function triggerGameOver(reasonText, killerImageSrc) {
+    gameState = 'GAMEOVER';
+    isMoving = false;
+    
+    // Immediate Jumpscare!
+    jumpscareImg.src = killerImageSrc;
+    jumpscareImg.classList.add('scare-active');
+
+    crashMsg.innerText = reasonText;
+    crashMsg.style.display = 'block';
+    startBtn.style.display = 'inline-block';
+    startBtn.innerText = "TRY AGAIN";
+    instructions.style.display = 'none';
+}
+
+function stageComplete() {
+    stage++;
+    levelEl.innerText = "STAGE: " + stage;
+    
+    // Reset positions
+    playerY = canvas.height - 100;
+    shadowY = canvas.height;
+    
+    // Increase difficulty
+    shadowSpeed += 0.3; // Shadow rises faster
+    monsterState = 'SLEEP';
+    stateTimer = 100;
+    
+    // Flash green to show success
+    ctx.fillStyle = "rgba(0, 255, 0, 0.5)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// --- 7. INPUT HANDLING ---
+function startMoving(e) {
+    if (e) e.preventDefault();
+    if (gameState === 'PLAYING') isMoving = true;
+}
+
+function stopMoving(e) {
+    if (e) e.preventDefault();
+    isMoving = false;
+}
+
+// Mouse controls
+window.addEventListener('mousedown', startMoving);
+window.addEventListener('mouseup', stopMoving);
+
+// Touch controls (Mobile)
+window.addEventListener('touchstart', startMoving, { passive: false });
+window.addEventListener('touchend', stopMoving);
+
+// Keyboard (Spacebar)
+window.addEventListener('keydown', (e) => { if (e.code === 'Space') startMoving(); });
+window.addEventListener('keyup', (e) => { if (e.code === 'Space') stopMoving(); });
+
+
+startBtn.addEventListener('click', (e) => {
+    e.stopPropagation(); // Prevents the click from counting as a move immediately
+    unlockAudio();
+    
+    gameState = 'PLAYING';
+    stage = 1;
+    levelEl.innerText = "STAGE: 1";
+    playerY = canvas.height - 100;
+    shadowY = canvas.height;
+    shadowSpeed = 0.8;
+    isMoving = false;
+    monsterState = 'SLEEP';
+    stateTimer = 100;
+
+    jumpscareImg.classList.remove('scare-active');
+    gameContainer.classList.remove('glitching');
+    crashMsg.style.display = 'none';
+    instructions.style.display = 'none';
+    startBtn.style.display = 'none';
+});
+
+// Start loop
+draw();
+</script>
+</body>
+</html>
