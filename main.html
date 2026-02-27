@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Easha Studios | Interactive Nightmares</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;700;900&family=Creepster&display=swap');
+
+        :root {
+            --bg-base: #050505;
+            --accent-main: #ff0044;
+            --accent-glow: rgba(255, 0, 68, 0.5);
+            --card-bg: rgba(20, 20, 20, 0.6);
+            --text-main: #ffffff;
+            --text-muted: #888888;
+        }
+
+        * {
+            margin: 0; padding: 0; box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: 'Montserrat', sans-serif;
+            overflow-x: hidden;
+            cursor: none; /* We will make a custom JS cursor */
+        }
+
+        /* --- Custom JS Cursor --- */
+        #custom-cursor {
+            position: fixed; top: 0; left: 0; width: 20px; height: 20px;
+            border: 2px solid var(--accent-main); border-radius: 50%;
+            transform: translate(-50%, -50%); pointer-events: none; z-index: 9999;
+            transition: width 0.2s, height 0.2s, background-color 0.2s;
+        }
+        .cursor-hover { width: 50px !important; height: 50px !important; background-color: rgba(255,0,68,0.2); }
+
+        /* --- Interactive Background Canvas --- */
+        #bg-canvas {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            z-index: -1; pointer-events: none;
+        }
+
+        /* --- Navigation --- */
+        nav {
+            position: fixed; top: 0; width: 100%; padding: 25px 50px;
+            display: flex; justify-content: space-between; align-items: center;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+            z-index: 100; backdrop-filter: blur(5px);
+        }
+
+        .logo { font-family: 'Creepster', cursive; font-size: 35px; color: var(--accent-main); letter-spacing: 2px; text-shadow: 0 0 15px var(--accent-glow);}
+        
+        /* --- Hero Section --- */
+        .hero {
+            height: 100vh; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center;
+            padding: 0 20px;
+        }
+
+        .hero h1 { font-size: clamp(3rem, 8vw, 6rem); font-weight: 900; line-height: 1; margin-bottom: 20px; text-transform: uppercase; }
+        .hero h1 span { color: var(--accent-main); }
+        .hero p { font-size: 1.2rem; color: var(--text-muted); max-width: 600px; line-height: 1.6; margin-bottom: 40px; }
+
+        .scroll-indicator {
+            position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+            animation: bounce 2s infinite; color: var(--text-muted); font-size: 14px; letter-spacing: 2px; text-transform: uppercase;
+        }
+
+        @keyframes bounce { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 15px); } }
+
+        /* --- Games Grid Section --- */
+        .showcase { padding: 100px 5%; max-width: 1400px; margin: 0 auto; }
+        .section-title { font-family: 'Creepster', cursive; font-size: 50px; text-align: center; margin-bottom: 80px; color: var(--text-main); }
+
+        .grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 50px; perspective: 1500px; /* Crucial for 3D effect */
+        }
+
+        /* --- 3D Game Cards --- */
+        .card {
+            background: var(--card-bg); border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 15px; padding: 30px; display: flex; flex-direction: column; align-items: center; text-align: center;
+            text-decoration: none; color: white; transform-style: preserve-3d;
+            transition: border 0.3s; position: relative;
+        }
+
+        .card:hover { border-color: var(--accent-main); }
+
+        /* Floating Animated Thumbnails */
+        .card-img-container {
+            width: 100%; height: 180px; margin-bottom: 25px;
+            transform: translateZ(60px); /* 3D POP OUT */
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        .card-img {
+            width: 120px; height: 120px; object-fit: cover; border-radius: 15px;
+            box-shadow: 0 20px 30px rgba(0,0,0,0.8); border: 2px solid rgba(255,255,255,0.1);
+            animation: float 4s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-15px) rotate(3deg); box-shadow: 0 30px 40px rgba(255,0,68,0.3); border-color: var(--accent-main);}
+        }
+
+        .card h2 { font-size: 24px; font-weight: 900; margin-bottom: 10px; transform: translateZ(40px); }
+        .card p { font-size: 14px; color: var(--text-muted); line-height: 1.5; transform: translateZ(30px); margin-bottom: 25px; flex-grow: 1; }
+
+        .play-btn {
+            background: transparent; color: var(--accent-main); border: 2px solid var(--accent-main);
+            padding: 10px 25px; font-weight: bold; border-radius: 30px; text-transform: uppercase; letter-spacing: 1px;
+            transform: translateZ(50px); transition: all 0.3s; width: 100%;
+        }
+
+        .card:hover .play-btn { background: var(--accent-main); color: white; box-shadow: 0 0 20px var(--accent-glow); }
+
+    </style>
+</head>
+<body>
+
+    <div id="custom-cursor"></div>
+    <canvas id="bg-canvas"></canvas>
+
+    <nav>
+        <div class="logo">EASHA STUDIOS</div>
+    </nav>
+
+    <header class="hero">
+        <h1>Face Your <span>Fears.</span></h1>
+        <p>A collection of 8 highly-addictive, psychologically terrifying experiences. Powered by pure JavaScript physics and endless nightmares.</p>
+        <div class="scroll-indicator">Scroll to Play</div>
+    </header>
+
+    <section class="showcase">
+        <h2 class="section-title">THE ARCHIVES</h2>
+        <div class="grid" id="games-grid">
+            </div>
+    </section>
+
+<script>
+    // --- 1. DYNAMIC DATA STRUCTURE ---
+    // We use JS to define the 8 games so the HTML stays clean
+    const imgEasha = "https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/easha.jpeg";
+    const imgKavitha = "https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kavitha.jpeg";
+    const imgVaru = "https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/varu.jpeg";
+
+    const gamesData = [
+        { title: "Escape the Nightmare", desc: "A terrifying vertical flappy survival. Dodge massive monster faces.", img: imgEasha, url: "https://thesaching.github.io/flappy-binsu-game/easha1.html" },
+        { title: "Nightmare Arena", desc: "Flashlight survival. They hunt you in the dark. Collect the orbs.", img: imgKavitha, url: "https://thesaching.github.io/flappy-binsu-game/easha2.html" },
+        { title: "The Relentless Chase", desc: "Run for your life. The wall of faces is creeping up right behind you.", img: imgVaru, url: "https://thesaching.github.io/flappy-binsu-game/easha3.html" },
+        { title: "Cavern of Nightmares", desc: "Navigate through bloody, razor-sharp spikes pointing at you from above and below.", img: imgEasha, url: "https://thesaching.github.io/flappy-binsu-game/easha4.html" },
+        { title: "360° Stalker Arena", desc: "Spin your flashlight to burn them, but watch your back. They sprint in the dark.", img: imgKavitha, url: "https://thesaching.github.io/flappy-binsu-game/easha5.html" },
+        { title: "Silence: Do Not Move", desc: "Hold to crawl. Freeze when they look. Don't let the shadow consume you.", img: imgVaru, url: "https://thesaching.github.io/flappy-binsu-game/easha6.html" },
+        { title: "Wrath of the Son", desc: "A bullet-hell boss fight. Shoot tears of rage to push back the monster parents.", img: imgEasha, url: "https://thesaching.github.io/flappy-binsu-game/easha7.html" },
+        { title: "Surrounded", desc: "Defend the center. Tap to shoot bursts of anger at the swarm creeping in.", img: imgKavitha, url: "https://thesaching.github.io/flappy-binsu-game/easha8.html" }
+    ];
+
+    // --- 2. DYNAMICALLY GENERATE THE DOM ---
+    const grid = document.getElementById('games-grid');
+    
+    gamesData.forEach((game, index) => {
+        // We delay the floating animation slightly for each card so they bob up and down organically
+        const delay = index * 0.5; 
+        
+        const cardHTML = `
+            <a href="${game.url}" class="card">
+                <div class="card-img-container">
+                    <img src="${game.img}" alt="${game.title}" class="card-img" style="animation-delay: ${delay}s">
+                </div>
+                <h2>${game.title}</h2>
+                <p>${game.desc}</p>
+                <div class="play-btn">Play Now</div>
+            </a>
+        `;
+        grid.innerHTML += cardHTML;
+    });
+
+    // --- 3. ADVANCED 3D TILT EFFECT FOR CARDS ---
+    const cards = document.querySelectorAll('.card');
+    
+    cards.forEach(card => {
+        card.addEventListener('mousemove', (e) => {
+            const rect = card.getBoundingClientRect();
+            // Get mouse position relative to the center of the card
+            const x = e.clientX - rect.left - rect.width / 2;
+            const y = e.clientY - rect.top - rect.height / 2;
+            
+            // Calculate rotation (Divide by a number to dampen the effect)
+            const rotateX = (y / rect.height) * -30;
+            const rotateY = (x / rect.width) * 30;
+
+            card.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.05, 1.05, 1.05)`;
+            card.style.transition = 'none'; // Remove transition for instant mouse tracking
+        });
+
+        card.addEventListener('mouseleave', () => {
+            // Smoothly snap back to flat when mouse leaves
+            card.style.transform = `rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)`;
+            card.style.transition = 'transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+        });
+        
+        // Custom Cursor Hover Logic
+        card.addEventListener('mouseenter', () => cursor.classList.add('cursor-hover'));
+        card.addEventListener('mouseleave', () => cursor.classList.remove('cursor-hover'));
+    });
+
+    // --- 4. CUSTOM CURSOR TRACKING ---
+    const cursor = document.getElementById('custom-cursor');
+    document.addEventListener('mousemove', (e) => {
+        cursor.style.left = e.clientX + 'px';
+        cursor.style.top = e.clientY + 'px';
+    });
+
+    // --- 5. INTERACTIVE CANVAS BACKGROUND (BLOODY PARTICLES) ---
+    const canvas = document.getElementById('bg-canvas');
+    const ctx = canvas.getContext('2d');
+    let width, height;
+    let particles = [];
+
+    function resizeBg() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeBg);
+    resizeBg();
+
+    class Particle {
+        constructor() {
+            this.x = Math.random() * width;
+            this.y = Math.random() * height;
+            this.vx = (Math.random() - 0.5) * 0.5;
+            this.vy = Math.random() * -1 - 0.5; // Drift upwards slowly
+            this.size = Math.random() * 2 + 1;
+            this.alpha = Math.random() * 0.5 + 0.1;
+        }
+        update() {
+            this.x += this.vx;
+            this.y += this.vy;
+            if (this.y < 0) {
+                this.y = height;
+                this.x = Math.random() * width;
+            }
+        }
+        draw() {
+            ctx.fillStyle = `rgba(255, 0, 68, ${this.alpha})`;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    for (let i = 0; i < 100; i++) particles.push(new Particle());
+
+    function animateBg() {
+        ctx.clearRect(0, 0, width, height);
+        particles.forEach(p => {
+            p.update();
+            p.draw();
+        });
+        requestAnimationFrame(animateBg);
+    }
+    animateBg();
+</script>
+</body>
+</html>
