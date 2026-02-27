@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Wrath of the Son</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&display=swap');
+
+        /* Strict mobile lock to prevent scrolling/zooming */
+        html, body { 
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background: #000; display: flex; justify-content: center; align-items: center; 
+            font-family: 'Creepster', cursive; overflow: hidden; 
+            touch-action: none; overscroll-behavior: none; user-select: none; -webkit-user-select: none;
+        }
+        
+        #game-container { position: relative; width: 100%; height: 100%; max-width: 700px; background: #050000; }
+        canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+
+        /* --- UI STYLING --- */
+        #ui { 
+            position: absolute; top: 10px; width: 100%; color: #fff; 
+            pointer-events: none; z-index: 10; display: flex; flex-direction: column; 
+            padding: 0 20px; box-sizing: border-box;
+        }
+        
+        .boss-bar-container { width: 100%; height: 20px; background: #222; border: 2px solid #550000; margin-bottom: 5px; position: relative;}
+        .boss-bar { width: 100%; height: 100%; background: #ff0000; transition: width 0.1s; }
+        .boss-name { position: absolute; top: -2px; left: 10px; font-size: 18px; color: white; text-shadow: 1px 1px 2px #000; }
+
+        #score-display { text-align: center; color: #ff0000; font-size: 30px; margin-top: 10px; text-shadow: 0 0 10px #ff0000; }
+
+        /* --- MENUS --- */
+        #center-ui {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; pointer-events: auto; z-index: 20; width: 90%;
+        }
+
+        .instruction { font-size: 20px; color: #aaa; font-family: sans-serif; margin-bottom: 25px; line-height: 1.5;}
+        .instruction span { color: #00e5ff; font-weight: bold; }
+        .crash-text { color: #ff0000; font-size: 60px; text-transform: uppercase; text-shadow: 0 0 30px #ff0000; margin-bottom: 10px; display: none;}
+        
+        #start-btn {
+            padding: 15px 40px; font-size: 35px; background: rgba(0,0,0,0.9); color: #ff0000;
+            border: 3px solid #ff0000; border-radius: 5px; cursor: pointer;
+            box-shadow: 0 0 20px rgba(255,0,0,0.6); font-family: 'Creepster', cursive; letter-spacing: 2px;
+        }
+
+        /* Screen effects */
+        @keyframes shake {
+            0% { transform: translate(5px, 5px); } 20% { transform: translate(-5px, -5px); }
+            40% { transform: translate(5px, -5px); } 60% { transform: translate(-5px, 5px); }
+            80% { transform: translate(5px, 0px); } 100% { transform: translate(-5px, 0); }
+        }
+        .shaking { animation: shake 0.3s; }
+        
+        #damage-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 50%, rgba(255,0,0,0.8) 100%);
+            pointer-events: none; opacity: 0; transition: opacity 0.5s; z-index: 5;
+        }
+
+        #jumpscare {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.1);
+            width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; z-index: 15;
+            transition: all 0.1s;
+        }
+        .scare-active { transform: translate(-50%, -50%) scale(1.2) !important; opacity: 1 !important; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="damage-overlay"></div>
+        <img id="jumpscare" src="" alt="scare">
+        
+        <div id="ui">
+            <div class="boss-bar-container">
+                <div id="father-hp" class="boss-bar"></div>
+                <div class="boss-name">FATHER</div>
+            </div>
+            <div class="boss-bar-container">
+                <div id="mother-hp" class="boss-bar"></div>
+                <div class="boss-name">MOTHER</div>
+            </div>
+            <div id="score-display">RAGE: 0</div>
+        </div>
+
+        <div id="center-ui">
+            <div id="crash-msg" class="crash-text">CRUSHED</div>
+            <div id="instructions" class="instruction">
+                <span>DRAG</span> to move and dodge.<br>
+                You will <span>AUTO-FIRE</span> upwards.<br>
+                Destroy the monsters blocking your freedom.
+            </div>
+            <button id="start-btn">FIGHT BACK</button>
+        </div>
+        
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const startBtn = document.getElementById('start-btn');
+const crashMsg = document.getElementById('crash-msg');
+const instructions = document.getElementById('instructions');
+const gameContainer = document.getElementById('game-container');
+const jumpscareImg = document.getElementById('jumpscare');
+const fatherHpBar = document.getElementById('father-hp');
+const motherHpBar = document.getElementById('mother-hp');
+const scoreDisplay = document.getElementById('score-display');
+const damageOverlay = document.getElementById('damage-overlay');
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth > 700 ? 700 : window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- 1. AUDIO SETUP ---
+const bgMusic = new Audio('https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kir.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.9; 
+let audioUnlocked = false;
+
+function unlockAudio() {
+    if (!audioUnlocked) {
+        bgMusic.play().catch(err => console.log("Audio waiting..."));
+        audioUnlocked = true;
+    }
+}
+
+// --- 2. LOAD IMAGES ---
+const sonImg = new Image(); sonImg.crossOrigin = "anonymous";
+sonImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/varu.jpeg'; 
+
+const fatherImg = new Image(); fatherImg.crossOrigin = "anonymous";
+fatherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/easha.jpeg'; 
+
+const motherImg = new Image(); motherImg.crossOrigin = "anonymous";
+motherImg.src = 'https://raw.githubusercontent.com/thesaching/flappy-binsu-game/refs/heads/main/kavitha.jpeg'; 
+
+// --- 3. GAME VARIABLES ---
+let gameState = 'IDLE'; 
+let frames = 0;
+let rageScore = 0;
+
+// Player (The Son)
+let player = { x: canvas.width/2, y: canvas.height - 100, size: 50, speed: 0.2 };
+let targetX = player.x;
+let targetY = player.y;
+
+// Projectiles
+let playerBullets = [];
+let bossBullets = [];
+let particles = [];
+
+// The Bosses
+const BOSS_MAX_HP = 500;
+let bosses = [];
+
+function initBosses() {
+    bosses = [
+        { id: 'father', img: fatherImg, x: canvas.width * 0.3, y: 120, size: 120, hp: BOSS_MAX_HP, vx: 2, vy: 0, attackTimer: 0, dead: false },
+        { id: 'mother', img: motherImg, x: canvas.width * 0.7, y: 120, size: 100, hp: BOSS_MAX_HP, vx: -2.5, vy: 0, attackTimer: 30, dead: false }
+    ];
+}
+
+// --- 4. GAME LOGIC ---
+function createExplosion(x, y, color) {
+    for(let i=0; i<15; i++) {
+        particles.push({
+            x: x, y: y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10,
+            life: 20 + Math.random()*10, color: color
+        });
+    }
+}
+
+// Boss Attack Patterns
+function bossShoot(boss) {
+    if (boss.dead) return;
+    
+    // As they lose health, they shoot more aggressively
+    let angerMultiplier = 1 + ((BOSS_MAX_HP - boss.hp) / BOSS_MAX_HP);
+    
+    // Pattern 1: Targeted Shot
+    let dx = player.x - boss.x;
+    let dy = player.y - boss.y;
+    let angle = Math.atan2(dy, dx);
+    let speed = 5 * angerMultiplier;
+    
+    bossBullets.push({
+        x: boss.x, y: boss.y + boss.size/2,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        size: 15, color: '#ff0000', isHoming: boss.id === 'mother' && boss.hp < BOSS_MAX_HP/2
+    });
+
+    // Pattern 2: Spray (If very angry)
+    if (angerMultiplier > 1.5 && Math.random() > 0.5) {
+        bossBullets.push({ x: boss.x, y: boss.y + boss.size/2, vx: -3, vy: 4, size: 10, color: '#8b0000' });
+        bossBullets.push({ x: boss.x, y: boss.y + boss.size/2, vx: 3, vy: 4, size: 10, color: '#8b0000' });
+    }
+}
+
+// --- 5. MAIN LOOP ---
+function draw() {
+    // Bloody starry background effect
+    ctx.fillStyle = "rgba(5, 0, 0, 0.4)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (gameState === 'PLAYING') {
+        frames++;
+
+        // --- 1. PLAYER MOVEMENT & SHOOTING ---
+        player.x += (targetX - player.x) * player.speed;
+        player.y += (targetY - player.y) * player.speed;
+        
+        // Boundaries
+        player.x = Math.max(player.size/2, Math.min(canvas.width - player.size/2, player.x));
+        player.y = Math.max(player.size/2, Math.min(canvas.height - player.size/2, player.y));
+
+        // Auto-Fire Tears of Rage
+        if (frames % 6 === 0) {
+            playerBullets.push({ x: player.x - 10, y: player.y - 20, vy: -15, size: 6 });
+            playerBullets.push({ x: player.x + 10, y: player.y - 20, vy: -15, size: 6 });
+        }
+
+        // --- 2. UPDATE PLAYER BULLETS ---
+        ctx.fillStyle = "#00e5ff"; ctx.shadowBlur = 10; ctx.shadowColor = "#00e5ff";
+        for (let i = playerBullets.length - 1; i >= 0; i--) {
+            let b = playerBullets[i];
+            b.y += b.vy;
+            ctx.fillRect(b.x - b.size/2, b.y - b.size, b.size, b.size*3); // Long laser shape
+            
+            // Check Boss Collision
+            for (let boss of bosses) {
+                if (!boss.dead && b.x > boss.x - boss.size/2 && b.x < boss.x + boss.size/2 && 
+                    b.y > boss.y - boss.size/2 && b.y < boss.y + boss.size/2) {
+                    boss.hp -= 2;
+                    rageScore += 2;
+                    scoreDisplay.innerText = "RAGE: " + rageScore;
+                    createExplosion(b.x, b.y, "#00e5ff");
+                    playerBullets.splice(i, 1);
+                    
+                    // Update UI Bars
+                    if (boss.id === 'father') fatherHpBar.style.width = Math.max(0, (boss.hp / BOSS_MAX_HP) * 100) + "%";
+                    if (boss.id === 'mother') motherHpBar.style.width = Math.max(0, (boss.hp / BOSS_MAX_HP) * 100) + "%";
+                    
+                    if (boss.hp <= 0 && !boss.dead) {
+                        boss.dead = true;
+                        createExplosion(boss.x, boss.y, "#ff0000"); // Massive death explosion
+                    }
+                    break;
+                }
+            }
+            if (b && b.y < 0) playerBullets.splice(i, 1);
+        }
+        ctx.shadowBlur = 0;
+
+        // --- 3. UPDATE BOSSES ---
+        let allDead = true;
+        for (let boss of bosses) {
+            if (boss.dead) continue;
+            allDead = false;
+
+            // Erratic Movement
+            boss.x += boss.vx;
+            boss.y += boss.vy;
+
+            // Bounce off walls
+            if (boss.x < boss.size/2 || boss.x > canvas.width - boss.size/2) boss.vx *= -1;
+            
+            // Randomly swoop down
+            if (Math.random() < 0.01) boss.vy = 2;
+            if (boss.y > 300) boss.vy = -2;
+            if (boss.y < 80) boss.vy = 0;
+
+            // Shooting
+            boss.attackTimer++;
+            let fireRate = Math.max(20, 60 - ((BOSS_MAX_HP - boss.hp) * 0.1)); // Shoots faster as HP drops
+            if (boss.attackTimer > fireRate) {
+                bossShoot(boss);
+                boss.attackTimer = 0;
+            }
+
+            // Draw Boss
+            if (boss.img.complete) {
+                ctx.drawImage(boss.img, boss.x - boss.size/2, boss.y - boss.size/2, boss.size, boss.size);
+                // Flash red when low HP
+                if (boss.hp < BOSS_MAX_HP * 0.3 && frames % 10 < 5) {
+                    ctx.fillStyle = "rgba(255,0,0,0.5)";
+                    ctx.fillRect(boss.x - boss.size/2, boss.y - boss.size/2, boss.size, boss.size);
+                }
+                ctx.strokeStyle = "#ff0000"; ctx.lineWidth = 3;
+                ctx.strokeRect(boss.x - boss.size/2, boss.y - boss.size/2, boss.size, boss.size);
+            }
+        }
+
+        // If both parents are defeated, revive them stronger! (Endless Horror)
+        if (allDead) {
+            damageOverlay.style.background = "radial-gradient(circle, transparent 50%, rgba(0,229,255,0.8) 100%)";
+            damageOverlay.style.opacity = 1;
+            setTimeout(() => { damageOverlay.style.opacity = 0; damageOverlay.style.background = "radial-gradient(circle, transparent 50%, rgba(255,0,0,0.8) 100%)"; }, 1000);
+            
+            bosses.forEach(b => { 
+                b.hp = BOSS_MAX_HP; b.dead = false; 
+                b.size += 10; // Get bigger
+            });
+            fatherHpBar.style.width = "100%"; motherHpBar.style.width = "100%";
+        }
+
+        // --- 4. UPDATE BOSS BULLETS & PLAYER COLLISION ---
+        for (let i = bossBullets.length - 1; i >= 0; i--) {
+            let b = bossBullets[i];
+            
+            // Mother's bullets home in slightly when she is angry
+            if (b.isHoming) {
+                let dx = player.x - b.x; let dy = player.y - b.y;
+                let angle = Math.atan2(dy, dx);
+                b.vx += Math.cos(angle) * 0.1; b.vy += Math.sin(angle) * 0.1;
+            }
+
+            b.x += b.vx; b.y += b.vy;
+
+            // Draw Bloody Attack
+            ctx.fillStyle = b.color;
+            ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI*2); ctx.fill();
+
+            // Collision with Player (Player has a SMALL, precise hitbox in the center)
+            let hitboxRadius = 15; // Tiny hitbox for bullet hell fairness
+            let dist = Math.hypot(b.x - player.x, b.y - player.y);
+            
+            if (dist < b.size + hitboxRadius) {
+                // Determine which parent killed you based on bullet origin color/logic, 
+                // but random is scarier
+                triggerGameOver(Math.random() > 0.5 ? fatherImg.src : motherImg.src);
+            }
+
+            if (b.y > canvas.height || b.x < 0 || b.x > canvas.width) bossBullets.splice(i, 1);
+        }
+
+        // --- 5. UPDATE PARTICLES ---
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.x += p.vx; p.y += p.vy; p.life--;
+            ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, p.life / 30); 
+            ctx.fillRect(p.x, p.y, 4, 4);
+            ctx.globalAlpha = 1.0;
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+
+        // --- 6. DRAW PLAYER ---
+        if (sonImg.complete) {
+            ctx.drawImage(sonImg, player.x - player.size/2, player.y - player.size/2, player.size, player.size);
+            
+            // Draw the glowing "Hitbox Heart" in the center
+            ctx.fillStyle = "#00e5ff"; ctx.beginPath(); ctx.arc(player.x, player.y, 5, 0, Math.PI*2); ctx.fill();
+            
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+            ctx.strokeRect(player.x - player.size/2, player.y - player.size/2, player.size, player.size);
+        }
+    }
+
+    if (gameState === 'GAMEOVER') {
+        ctx.fillStyle = "rgba(255, 0, 0, 0.3)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    requestAnimationFrame(draw);
+}
+
+// --- 6. GAME OVER LOGIC ---
+function triggerGameOver(killerImageSrc) {
+    gameState = 'GAMEOVER';
+    
+    gameContainer.classList.add('shaking');
+    damageOverlay.style.opacity = 1;
+    setTimeout(() => gameContainer.classList.remove('shaking'), 500);
+
+    // Jumpscare
+    jumpscareImg.src = killerImageSrc;
+    jumpscareImg.classList.add('scare-active');
+
+    crashMsg.style.display = 'block';
+    startBtn.style.display = 'inline-block';
+    startBtn.innerText = "FIGHT AGAIN";
+    instructions.style.display = 'none';
+}
+
+// --- 7. INPUT HANDLING ---
+function handleMove(e) {
+    if (gameState !== 'PLAYING') return;
+    e.preventDefault();
+    let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    let rect = canvas.getBoundingClientRect();
+    
+    // Offset slightly so finger doesn't cover the son's face on mobile
+    targetX = clientX - rect.left;
+    targetY = clientY - rect.top - (e.touches ? 40 : 0); 
+}
+
+// Touch/Mouse Tracking
+window.addEventListener('touchstart', handleMove, { passive: false });
+window.addEventListener('touchmove', handleMove, { passive: false });
+window.addEventListener('mousemove', handleMove);
+
+startBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    unlockAudio();
+    
+    gameState = 'PLAYING';
+    frames = 0; rageScore = 0;
+    scoreDisplay.innerText = "RAGE: 0";
+    
+    player.x = canvas.width/2; player.y = canvas.height - 100;
+    targetX = player.x; targetY = player.y;
+    
+    playerBullets = []; bossBullets = []; particles = [];
+    initBosses();
+    
+    fatherHpBar.style.width = "100%";
+    motherHpBar.style.width = "100%";
+
+    jumpscareImg.classList.remove('scare-active');
+    damageOverlay.style.opacity = 0;
+    crashMsg.style.display = 'none';
+    instructions.style.display = 'none';
+    startBtn.style.display = 'none';
+});
+
+// Load resources and wait
+initBosses();
+draw();
+</script>
+</body>
+</html>
